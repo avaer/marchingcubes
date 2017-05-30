@@ -6,9 +6,9 @@ if (require.main === module) {
   const ellipseFn = (x, y, z) => Math.sqrt(Math.pow(x * 2, 2) + Math.pow(y, 2) + Math.pow(z, 2)) - 0.5;
 
   const size = 50;
-  const width = 50;
-  const height = 50;
-  const depth = 50;
+  const width = size;
+  const height = size;
+  const depth = size;
   const _getCoordIndex = (x, y, z) => x + (y * width) + (z * width * height);
   const data = (() => {
     const result = new Float32Array(width * height * depth);
