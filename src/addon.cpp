@@ -37,11 +37,14 @@ void March(const v8::FunctionCallbackInfo<v8::Value>& args) {
   v8::Local<v8::Value> width = opts->Get(v8::String::NewFromUtf8(isolate, "width"));
   v8::Local<v8::Value> height = opts->Get(v8::String::NewFromUtf8(isolate, "height"));
   v8::Local<v8::Value> depth = opts->Get(v8::String::NewFromUtf8(isolate, "depth"));
-  if (!(width->IsNumber() && height->IsNumber() && depth->IsNumber())) {
+  v8::Local<v8::Value> data = opts->Get(v8::String::NewFromUtf8(isolate, "data"));
+  if (!(width->IsNumber() && height->IsNumber() && depth->IsNumber() && data->IsFloat32Array())) {
     isolate->ThrowException(v8::Exception::TypeError(
         v8::String::NewFromUtf8(isolate, "Invalid options")));
     return;
   }
+
+  v8::Local<v8::Float32Array> dataArray = data.As<v8::Float32Array>();
 
   // begin mc
   // grid size control
@@ -55,6 +58,7 @@ void March(const v8::FunctionCallbackInfo<v8::Value>& args) {
   // Fills data structure
   int i,j,k ;
   float w ;
+  unsigned int index;
   float rx = (xmax-xmin) / (size_x - 1) ;
   float ry = (ymax-ymin) / (size_y - 1) ;
   float rz = (zmax-zmin) / (size_z - 1) ;
@@ -64,11 +68,8 @@ void March(const v8::FunctionCallbackInfo<v8::Value>& args) {
     {
       for( k = 0 ; k < size_z ; k++ )
       {
-        w = fn(
-          (((float)(i) / (float)(size_x)) - 0.5) * 2,
-          (((float)(j) / (float)(size_y)) - 0.5) * 2,
-          (((float)(k) / (float)(size_z)) - 0.5) * 2
-        );
+        index = i + (j * size_x) + (k * size_x * size_y);
+        w = (float)dataArray->Get(index)->NumberValue();
         mc.set_data( w, i, j, k ) ;
       }
     }
