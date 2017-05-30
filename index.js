@@ -5,4 +5,4 @@ const result = marchingcubes.march({
   height: 50,
   depth: 50,
 });
-console.log('got marching cubes', result.length);
+console.log('got marching cubes', result.positions.length);

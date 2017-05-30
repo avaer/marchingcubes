@@ -1,4 +1,3 @@
-#include <iostream>
 #include <node.h>
 
 #include "MarchingCubes.h"
@@ -7,10 +6,11 @@
 
 using std::pow;
 using std::abs;
+using std::sqrt;
 
 float fn(float x, float y, float z) {
   //return pow((2*pow((1.3*x),2)+pow((1.3*y),2)+pow((1.3*z),2)-1),3)-(1/10)*pow((1.3*x),2)*pow((1.3*z),3)-pow((1.3*y),2)*pow((1.3*z),3);
-  return pow(2*x,2)+pow(y,2)+pow(z,2);
+  return sqrt(pow(x*2,2)+pow(y,2)+pow(z,2)) - 0.5f;
 }
 
 // grid extension
@@ -65,11 +65,10 @@ void March(const v8::FunctionCallbackInfo<v8::Value>& args) {
       for( k = 0 ; k < size_z ; k++ )
       {
         w = fn(
-          (((float)(i) / (float)(size_x)) - ((float)(size_x) / 2)) * 20,
-          (((float)(j) / (float)(size_y)) - ((float)(size_y) / 2)) * 20,
-          (((float)(k) / (float)(size_z)) - ((float)(size_z) / 2)) * 20
+          (((float)(i) / (float)(size_x)) - 0.5) * 2,
+          (((float)(j) / (float)(size_y)) - 0.5) * 2,
+          (((float)(k) / (float)(size_z)) - 0.5) * 2
         );
-        w = (abs(i - (size_x / 2)) <= 4 && abs(j - (size_y / 2)) <= 4 && abs(k - (size_z / 2)) <= 4) ? -0.9 : 0.9;
         mc.set_data( w, i, j, k ) ;
       }
     }
@@ -82,7 +81,6 @@ void March(const v8::FunctionCallbackInfo<v8::Value>& args) {
   unsigned int numTrigs = mc.ntrigs();
   unsigned int numVerts = numTrigs * 3;
   unsigned int numPositions = numVerts * 3;
-  std::cerr << "num positions: " << numTrigs << ":" << numPositions << "\n";
   v8::Local<v8::Float32Array> positions = v8::Float32Array::New(v8::ArrayBuffer::New(isolate, numPositions * 4), 0, numPositions);
   v8::Local<v8::Float32Array> normals = v8::Float32Array::New(v8::ArrayBuffer::New(isolate, numPositions * 4), 0, numPositions);
 
@@ -116,7 +114,11 @@ void March(const v8::FunctionCallbackInfo<v8::Value>& args) {
     normals->Set(baseIndex + 8, v8::Number::New(isolate, c.x));
   }
 
-  args.GetReturnValue().Set(positions);
+  v8::Local<v8::Object> result = v8::Object::New(isolate);
+  result->Set(v8::String::NewFromUtf8(isolate, "positions"), positions);
+  result->Set(v8::String::NewFromUtf8(isolate, "normals"), normals);
+
+  args.GetReturnValue().Set(result);
 }
 
 void Init(v8::Local<v8::Object> exports) {
