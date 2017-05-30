@@ -1,7 +1,8 @@
 const marchingcubes = require('./build/Release/addon');
 
-console.log('got marching cubes', marchingcubes.march({
+const result = marchingcubes.march({
   width: 50,
   height: 50,
   depth: 50,
-}));
+});
+console.log('got marching cubes', result.length);

@@ -75,7 +75,7 @@ void MarchingCubes::run( real iso )
     process_cube(cube) ;
   }
 
-	std::cout << "Marching Cubes ran in " << ((double)(clock() - time)/CLOCKS_PER_SEC) << " secs.\n";
+	std::cerr << "Marching Cubes ran in " << ((double)(clock() - time)/CLOCKS_PER_SEC) << " secs.\n";
 }
 //_____________________________________________________________________________
 
@@ -119,20 +119,20 @@ void MarchingCubes::init_all ()
 void MarchingCubes::compute_intersection_points( real iso )
 //-----------------------------------------------------------------------------
 {
-	for(int k=0; k < _size_z; ++k) {
-		for(int j=0; j < _size_y; ++j) {
-			for(int i=0; i < _size_x; ++i) {
-				auto grid_coord = ivec3(i, j, k);
+	for(_k=0; _k < _size_z; ++_k) {
+		for(_j=0; _j < _size_y; ++_j) {
+			for(_i=0; _i < _size_x; ++_i) {
+				auto grid_coord = ivec3(_i, _j, _k);
 			
 				float cube[8];
 				cube[0] = get_data(grid_coord) - iso ;
-				if( _i < _size_x - 1 ) cube[1] = get_data(ivec3(i+1, j, k)) - iso ;
+				if( _i < _size_x - 1 ) cube[1] = get_data(ivec3(_i+1, _j, _k)) - iso ;
 				else                   cube[1] = cube[0] ;
 
-				if( _j < _size_y - 1 ) cube[3] = get_data(ivec3(i, j+1, k)) - iso ;
+				if( _j < _size_y - 1 ) cube[3] = get_data(ivec3(_i, _j+1, _k)) - iso ;
 				else                   cube[3] = cube[0] ;
 
-				if( _k < _size_z - 1 ) cube[4] = get_data(ivec3(i, j ,k+1)) - iso ;
+				if( _k < _size_z - 1 ) cube[4] = get_data(ivec3(_i, _j, _k+1)) - iso ;
 				else                   cube[4] = cube[0] ;
 
 				if( std::abs( cube[0] ) < std::numeric_limits<float>::epsilon() ) cube[0] = std::numeric_limits<float>::epsilon() ;
@@ -718,12 +718,14 @@ void MarchingCubes::add_triangle( const char* trig, char n, int v12 ) {
 			}
 			
 			if( tv[t] == -1 ) {
-				std::cout << "Marching Cubes: invalid triangle " << (ntrigs() + 1) << "\n";
+				std::cerr << "Marching Cubes: invalid triangle " << _i << ":" << _j << ":" << _k << ":" << (ntrigs() + 1) << "\n";
 				//print_cube() ;
 			}
 		}
-		
-		_triangles.push_back(Triangle{tv[0], tv[1], tv[2]});
+
+    if (tv[0] != -1 && tv[1] != -1 && tv[2] != -1) {
+		  _triangles.push_back(Triangle{tv[0], tv[1], tv[2]});
+    }
 	}
 }
 //_____________________________________________________________________________
