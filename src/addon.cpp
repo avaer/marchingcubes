@@ -98,21 +98,21 @@ void March(const v8::FunctionCallbackInfo<v8::Value>& args) {
     positions->Set(baseIndex + 1, v8::Number::New(isolate, a.y));
     positions->Set(baseIndex + 2, v8::Number::New(isolate, a.z));
     positions->Set(baseIndex + 3, v8::Number::New(isolate, b.x));
-    positions->Set(baseIndex + 4, v8::Number::New(isolate, b.x));
-    positions->Set(baseIndex + 5, v8::Number::New(isolate, b.x));
+    positions->Set(baseIndex + 4, v8::Number::New(isolate, b.y));
+    positions->Set(baseIndex + 5, v8::Number::New(isolate, b.z));
     positions->Set(baseIndex + 6, v8::Number::New(isolate, c.x));
-    positions->Set(baseIndex + 7, v8::Number::New(isolate, c.x));
-    positions->Set(baseIndex + 8, v8::Number::New(isolate, c.x));
+    positions->Set(baseIndex + 7, v8::Number::New(isolate, c.y));
+    positions->Set(baseIndex + 8, v8::Number::New(isolate, c.z));
 
-    normals->Set(baseIndex + 0, v8::Number::New(isolate, a.x));
-    normals->Set(baseIndex + 1, v8::Number::New(isolate, a.y));
-    normals->Set(baseIndex + 2, v8::Number::New(isolate, a.z));
-    normals->Set(baseIndex + 3, v8::Number::New(isolate, b.x));
-    normals->Set(baseIndex + 4, v8::Number::New(isolate, b.y));
-    normals->Set(baseIndex + 5, v8::Number::New(isolate, b.z));
-    normals->Set(baseIndex + 6, v8::Number::New(isolate, c.x));
-    normals->Set(baseIndex + 7, v8::Number::New(isolate, c.y));
-    normals->Set(baseIndex + 8, v8::Number::New(isolate, c.z));
+    normals->Set(baseIndex + 0, v8::Number::New(isolate, a.nx));
+    normals->Set(baseIndex + 1, v8::Number::New(isolate, a.ny));
+    normals->Set(baseIndex + 2, v8::Number::New(isolate, a.nz));
+    normals->Set(baseIndex + 3, v8::Number::New(isolate, b.nx));
+    normals->Set(baseIndex + 4, v8::Number::New(isolate, b.ny));
+    normals->Set(baseIndex + 5, v8::Number::New(isolate, b.nz));
+    normals->Set(baseIndex + 6, v8::Number::New(isolate, c.nx));
+    normals->Set(baseIndex + 7, v8::Number::New(isolate, c.ny));
+    normals->Set(baseIndex + 8, v8::Number::New(isolate, c.nz));
   }
 
   v8::Local<v8::Object> result = v8::Object::New(isolate);
