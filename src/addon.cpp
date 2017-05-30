@@ -4,15 +4,6 @@
 #include "LookUpTable.h"
 #include "csg.h"
 
-using std::pow;
-using std::abs;
-using std::sqrt;
-
-float fn(float x, float y, float z) {
-  //return pow((2*pow((1.3*x),2)+pow((1.3*y),2)+pow((1.3*z),2)-1),3)-(1/10)*pow((1.3*x),2)*pow((1.3*z),3)-pow((1.3*y),2)*pow((1.3*z),3);
-  return sqrt(pow(x*2,2)+pow(y,2)+pow(z,2)) - 0.5f;
-}
-
 // grid extension
 float xmin=-1.0f, xmax=1.0f,  ymin=-1.0f, ymax=1.0f,  zmin=-1.0f, zmax=1.0f ;
 
@@ -48,7 +39,8 @@ void March(const v8::FunctionCallbackInfo<v8::Value>& args) {
 
   // begin mc
   // grid size control
-  int   size_x=50, size_y=50, size_z=50 ;
+  int size_x = width->ToInt32()->Value(), size_y = height->ToInt32()->Value(), size_z = depth->ToInt32()->Value();
+  int half_size_x = size_x / 2, half_size_y = size_y / 2, half_size_z = size_z / 2;
 
   // Init data
   MarchingCubes mc;
@@ -95,15 +87,15 @@ void March(const v8::FunctionCallbackInfo<v8::Value>& args) {
     const Vertex &c = vertices[triangle.v3];
 
     unsigned int baseIndex = i * 3 * 3;
-    positions->Set(baseIndex + 0, v8::Number::New(isolate, a.x));
-    positions->Set(baseIndex + 1, v8::Number::New(isolate, a.y));
-    positions->Set(baseIndex + 2, v8::Number::New(isolate, a.z));
-    positions->Set(baseIndex + 3, v8::Number::New(isolate, b.x));
-    positions->Set(baseIndex + 4, v8::Number::New(isolate, b.y));
-    positions->Set(baseIndex + 5, v8::Number::New(isolate, b.z));
-    positions->Set(baseIndex + 6, v8::Number::New(isolate, c.x));
-    positions->Set(baseIndex + 7, v8::Number::New(isolate, c.y));
-    positions->Set(baseIndex + 8, v8::Number::New(isolate, c.z));
+    positions->Set(baseIndex + 0, v8::Number::New(isolate, a.x - half_size_x));
+    positions->Set(baseIndex + 1, v8::Number::New(isolate, a.y - half_size_y));
+    positions->Set(baseIndex + 2, v8::Number::New(isolate, a.z - half_size_z));
+    positions->Set(baseIndex + 3, v8::Number::New(isolate, b.x - half_size_x));
+    positions->Set(baseIndex + 4, v8::Number::New(isolate, b.y - half_size_y));
+    positions->Set(baseIndex + 5, v8::Number::New(isolate, b.z - half_size_z));
+    positions->Set(baseIndex + 6, v8::Number::New(isolate, c.x - half_size_x));
+    positions->Set(baseIndex + 7, v8::Number::New(isolate, c.y - half_size_y));
+    positions->Set(baseIndex + 8, v8::Number::New(isolate, c.z - half_size_z));
 
     normals->Set(baseIndex + 0, v8::Number::New(isolate, a.nx));
     normals->Set(baseIndex + 1, v8::Number::New(isolate, a.ny));
