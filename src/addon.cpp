@@ -108,11 +108,11 @@ void March(const v8::FunctionCallbackInfo<v8::Value>& args) {
     normals->Set(baseIndex + 1, v8::Number::New(isolate, a.y));
     normals->Set(baseIndex + 2, v8::Number::New(isolate, a.z));
     normals->Set(baseIndex + 3, v8::Number::New(isolate, b.x));
-    normals->Set(baseIndex + 4, v8::Number::New(isolate, b.x));
-    normals->Set(baseIndex + 5, v8::Number::New(isolate, b.x));
+    normals->Set(baseIndex + 4, v8::Number::New(isolate, b.y));
+    normals->Set(baseIndex + 5, v8::Number::New(isolate, b.z));
     normals->Set(baseIndex + 6, v8::Number::New(isolate, c.x));
-    normals->Set(baseIndex + 7, v8::Number::New(isolate, c.x));
-    normals->Set(baseIndex + 8, v8::Number::New(isolate, c.x));
+    normals->Set(baseIndex + 7, v8::Number::New(isolate, c.y));
+    normals->Set(baseIndex + 8, v8::Number::New(isolate, c.z));
   }
 
   v8::Local<v8::Object> result = v8::Object::New(isolate);
