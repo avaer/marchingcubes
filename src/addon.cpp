@@ -82,16 +82,17 @@ void March(const v8::FunctionCallbackInfo<v8::Value>& args) {
   unsigned int numTrigs = mc.ntrigs();
   unsigned int numVerts = numTrigs * 3;
   unsigned int numPositions = numVerts * 3;
+  unsigned int numNormals = numVerts * 3;
   v8::Local<v8::Float32Array> positions = v8::Float32Array::New(v8::ArrayBuffer::New(isolate, numPositions * 4), 0, numPositions);
-  v8::Local<v8::Float32Array> normals = v8::Float32Array::New(v8::ArrayBuffer::New(isolate, numPositions * 4), 0, numPositions);
+  v8::Local<v8::Float32Array> normals = v8::Float32Array::New(v8::ArrayBuffer::New(isolate, numNormals * 4), 0, numNormals);
 
   auto triangles = mc.triangles();
   auto vertices = mc.vertices();
   for (unsigned int i = 0; i < numTrigs; i++) {
     const Triangle &triangle = triangles[i];
-    auto a = vertices[triangle.v1];
-    auto b = vertices[triangle.v2];
-    auto c = vertices[triangle.v3];
+    const Vertex &a = vertices[triangle.v1];
+    const Vertex &b = vertices[triangle.v2];
+    const Vertex &c = vertices[triangle.v3];
 
     unsigned int baseIndex = i * 3 * 3;
     positions->Set(baseIndex + 0, v8::Number::New(isolate, a.x));
