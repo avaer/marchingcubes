@@ -75,7 +75,7 @@ void MarchingCubes::run( real iso )
     process_cube(cube) ;
   }
 
-	std::cerr << "Marching Cubes ran in " << ((double)(clock() - time)/CLOCKS_PER_SEC) << " secs.\n";
+	// std::cerr << "Marching Cubes ran in " << ((double)(clock() - time)/CLOCKS_PER_SEC) << " secs.\n";
 }
 //_____________________________________________________________________________
 

@@ -167,8 +167,8 @@ void _setHeightmap(float (&heightmap)[npos], const Vector2 &uv) {
       unsigned int index = i + (j * SIZE);
       float v = 10 +
         elevationNoise.octaveNoise(
-          ((uv.x * SIZE) + i) * elevationNoiseFrequency,
-          ((uv.y * SIZE) + j) * elevationNoiseFrequency,
+          (SIZE * 2) + (((uv.x * SIZE) + i) * elevationNoiseFrequency), // offset to avoid artifacts at the origin
+          (SIZE * 2) + (((uv.y * SIZE) + j) * elevationNoiseFrequency),
           elevationNoiseOctaves
         ) * (SIZE - 10);
       heightmap[index] = v;
@@ -252,7 +252,7 @@ v8::Local<v8::Value> DoMarchCubes(const v8::FunctionCallbackInfo<v8::Value>& arg
                 float distance = std::sqrt((i * i) + (j * j) + (k * k));
                 float distanceFactor = distance / std::sqrt(3);
                 float valueFactor = 1 - distanceFactor;
-                float v = valueFactor * 2;
+                float v = valueFactor * 1.5;
 
                 mc.set_data(
                   mc.get_data(ivec3(dx, dy, dz)) + v,
