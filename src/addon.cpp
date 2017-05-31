@@ -231,14 +231,41 @@ v8::Local<v8::Value> DoMarchCubes(const v8::FunctionCallbackInfo<v8::Value>& arg
 
   // Adjust for holes
   unsigned int numHoles = holesArray->Length() / 3;
-  for (unsigned int i = 0; i < numHoles; i++) {
-    unsigned int holeIndexBase = i * 3;
+  for (unsigned int h = 0; h < numHoles; h++) {
+    unsigned int holeIndexBase = h * 3;
     int x = holesArray->Get(holeIndexBase + 0)->Int32Value();
     int y = holesArray->Get(holeIndexBase + 1)->Int32Value();
     int z = holesArray->Get(holeIndexBase + 2)->Int32Value();
-    float v = mc.get_data(ivec3(x, y, z));
-    v += 1;
-    mc.set_data(v, x, y, z);
+
+    for (int i = -1; i <= 1; i++) {
+      int dx = x + i;
+
+      if (dx >= 0 && dx < SIZE) {
+        for (int j = -1; j <= 1; j++) {
+          int dy = y + j;
+
+          if (dx >= 0 && dx < SIZE) {
+            for (int k = -1; k <= 1; k++) {
+              int dz = z + k;
+
+              if (dz >= 0 && dz < SIZE) {
+                float distance = std::sqrt((i * i) + (j * j) + (k * k));
+                float distanceFactor = distance / std::sqrt(3);
+                float valueFactor = 1 - distanceFactor;
+                float v = valueFactor * 2;
+
+                mc.set_data(
+                  mc.get_data(ivec3(dx, dy, dz)) + v,
+                  dx,
+                  dy,
+                  dz
+                );
+              }
+            }
+          }
+        }
+      }
+    }
   }
 
   // mc.set_method(true);
