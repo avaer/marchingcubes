@@ -195,15 +195,15 @@ v8::Local<v8::Value> DoMarchCubes(const v8::FunctionCallbackInfo<v8::Value>& arg
     return v8::Null(isolate);
   }
 
-  /* v8::Local<v8::Object> opts = args[0]->ToObject();
-  v8::Local<v8::Value> width = opts->Get(v8::String::NewFromUtf8(isolate, "width"));
-  v8::Local<v8::Value> height = opts->Get(v8::String::NewFromUtf8(isolate, "height"));
-  v8::Local<v8::Value> depth = opts->Get(v8::String::NewFromUtf8(isolate, "depth"));
-  if (!(width->IsNumber() && height->IsNumber() && depth->IsNumber())) {
+  v8::Local<v8::Object> opts = args[0]->ToObject();
+  v8::Local<v8::Value> holes = opts->Get(v8::String::NewFromUtf8(isolate, "holes"));
+  if (!(holes->IsInt32Array())) {
     isolate->ThrowException(v8::Exception::TypeError(
         v8::String::NewFromUtf8(isolate, "Invalid options")));
     return v8::Null(isolate);
-  } */
+  }
+
+  v8::Local<v8::Int32Array> holesArray = holes.As<v8::Int32Array>();
 
   // generate heightmap
   _setHeightmap(heightmaps[0], Vector2{0, 0}); // front
@@ -220,13 +220,25 @@ v8::Local<v8::Value> DoMarchCubes(const v8::FunctionCallbackInfo<v8::Value>& arg
   mc.init_all();
 
   // Fills data structure
-  for (unsigned int i = 0; i < SIZE ; i++) {
-    for (unsigned int j = 0; j < SIZE ; j++) {
-      for (unsigned int k = 0; k < SIZE ; k++) {
+  for (unsigned int i = 0; i < SIZE; i++) {
+    for (unsigned int j = 0; j < SIZE; j++) {
+      for (unsigned int k = 0; k < SIZE; k++) {
         float v = _getValue(i, j, k, heightmaps);
         mc.set_data(v, i, j, k);
       }
     }
+  }
+
+  // Adjust for holes
+  unsigned int numHoles = holesArray->Length() / 3;
+  for (unsigned int i = 0; i < numHoles; i++) {
+    unsigned int holeIndexBase = i * 3;
+    int x = holesArray->Get(holeIndexBase + 0)->Int32Value();
+    int y = holesArray->Get(holeIndexBase + 1)->Int32Value();
+    int z = holesArray->Get(holeIndexBase + 2)->Int32Value();
+    float v = mc.get_data(ivec3(x, y, z));
+    v += 1;
+    mc.set_data(v, x, y, z);
   }
 
   // mc.set_method(true);
@@ -324,56 +336,60 @@ void MarchCubesPlanet(const v8::FunctionCallbackInfo<v8::Value>& args) {
   auto colorsKey = v8::String::NewFromUtf8(isolate, "colors");
 
   v8::Local<v8::Object> marchingCubes = DoMarchCubes(args).As<v8::Object>();
-  v8::Local<v8::Float32Array> positions = marchingCubes->Get(positionsKey).As<v8::Float32Array>();
+  if (!marchingCubes->IsNull()) {
+    v8::Local<v8::Float32Array> positions = marchingCubes->Get(positionsKey).As<v8::Float32Array>();
 
-  unsigned int numPositions = positions->Length();
-  unsigned int numTriangles = numPositions / 3;
-  v8::Local<v8::Float32Array> colors = v8::Float32Array::New(v8::ArrayBuffer::New(isolate, numPositions * 4), 0, numPositions);
-  for (unsigned int i = 0; i < numTriangles; i++) {
-    unsigned int triangleBaseIndex = i * 3 * 3;
+    unsigned int numPositions = positions->Length();
+    unsigned int numTriangles = numPositions / 3;
+    v8::Local<v8::Float32Array> colors = v8::Float32Array::New(v8::ArrayBuffer::New(isolate, numPositions * 4), 0, numPositions);
+    for (unsigned int i = 0; i < numTriangles; i++) {
+      unsigned int triangleBaseIndex = i * 3 * 3;
 
-    Vector3 pa{
-      (float)positions->Get(triangleBaseIndex + 0)->NumberValue(),
-      (float)positions->Get(triangleBaseIndex + 1)->NumberValue(),
-      (float)positions->Get(triangleBaseIndex + 2)->NumberValue()
-    };
-    Vector3 pb{
-      (float)positions->Get(triangleBaseIndex + 3)->NumberValue(),
-      (float)positions->Get(triangleBaseIndex + 4)->NumberValue(),
-      (float)positions->Get(triangleBaseIndex + 5)->NumberValue()
-    };
-    Vector3 pc{
-      (float)positions->Get(triangleBaseIndex + 6)->NumberValue(),
-      (float)positions->Get(triangleBaseIndex + 7)->NumberValue(),
-      (float)positions->Get(triangleBaseIndex + 8)->NumberValue()
-    };
-    Vector3 center{
-      (pa.x + pb.x + pc.x) / 3,
-      (pa.y + pb.y + pc.y) / 3,
-      (pa.z + pb.z + pc.z) / 3
-    };
-    float elevation = std::sqrt(center.x * center.x + center.y * center.y + center.z * center.z);
-    float moisture = moistureNoise.octaveNoise(
-      center.x * moistureNoiseFrequency,
-      center.y * moistureNoiseFrequency,
-      center.z * moistureNoiseFrequency,
-      moistureNoiseOctaves
-    );
-    unsigned int c = _getBiomeColor(elevation, moisture, 50);
-    float r = (float)((c >> (8 * 2)) & 0xFF) / 0xFF;
-    float g = (float)((c >> (8 * 1)) & 0xFF) / 0xFF;
-    float b = (float)((c >> (8 * 0)) & 0xFF) / 0xFF;
-    for (unsigned int j = 0; j < 3; j++) {
-      unsigned int positionBaseIndex = triangleBaseIndex + (j * 3);
-      colors->Set(positionBaseIndex + 0, v8::Number::New(isolate, r));
-      colors->Set(positionBaseIndex + 1, v8::Number::New(isolate, g));
-      colors->Set(positionBaseIndex + 2, v8::Number::New(isolate, b));
+      Vector3 pa{
+        (float)positions->Get(triangleBaseIndex + 0)->NumberValue(),
+        (float)positions->Get(triangleBaseIndex + 1)->NumberValue(),
+        (float)positions->Get(triangleBaseIndex + 2)->NumberValue()
+      };
+      Vector3 pb{
+        (float)positions->Get(triangleBaseIndex + 3)->NumberValue(),
+        (float)positions->Get(triangleBaseIndex + 4)->NumberValue(),
+        (float)positions->Get(triangleBaseIndex + 5)->NumberValue()
+      };
+      Vector3 pc{
+        (float)positions->Get(triangleBaseIndex + 6)->NumberValue(),
+        (float)positions->Get(triangleBaseIndex + 7)->NumberValue(),
+        (float)positions->Get(triangleBaseIndex + 8)->NumberValue()
+      };
+      Vector3 center{
+        (pa.x + pb.x + pc.x) / 3,
+        (pa.y + pb.y + pc.y) / 3,
+        (pa.z + pb.z + pc.z) / 3
+      };
+      float elevation = std::sqrt(center.x * center.x + center.y * center.y + center.z * center.z);
+      float moisture = moistureNoise.octaveNoise(
+        center.x * moistureNoiseFrequency,
+        center.y * moistureNoiseFrequency,
+        center.z * moistureNoiseFrequency,
+        moistureNoiseOctaves
+      );
+      unsigned int c = _getBiomeColor(elevation, moisture, 50);
+      float r = (float)((c >> (8 * 2)) & 0xFF) / 0xFF;
+      float g = (float)((c >> (8 * 1)) & 0xFF) / 0xFF;
+      float b = (float)((c >> (8 * 0)) & 0xFF) / 0xFF;
+      for (unsigned int j = 0; j < 3; j++) {
+        unsigned int positionBaseIndex = triangleBaseIndex + (j * 3);
+        colors->Set(positionBaseIndex + 0, v8::Number::New(isolate, r));
+        colors->Set(positionBaseIndex + 1, v8::Number::New(isolate, g));
+        colors->Set(positionBaseIndex + 2, v8::Number::New(isolate, b));
+      }
     }
+
+    marchingCubes->Set(colorsKey, colors);
+
+    args.GetReturnValue().Set(marchingCubes);
+  } else {
+    args.GetReturnValue().Set(v8::Null(isolate));
   }
-
-  marchingCubes->Set(colorsKey, colors);
-
-  args.GetReturnValue().Set(marchingCubes);
 }
 
 void Init(v8::Local<v8::Object> exports) {
