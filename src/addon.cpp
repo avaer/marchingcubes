@@ -7,21 +7,23 @@
 // grid extension
 float xmin=-1.0f, xmax=1.0f,  ymin=-1.0f, ymax=1.0f,  zmin=-1.0f, zmax=1.0f ;
 
-void March(const v8::FunctionCallbackInfo<v8::Value>& args) {
+v8::Local<v8::Value> DoMarchCubes(const v8::FunctionCallbackInfo<v8::Value>& args) {
   v8::Isolate* isolate = args.GetIsolate();
+  auto positionsKey = v8::String::NewFromUtf8(isolate, "positions");
+  auto normalsKey = v8::String::NewFromUtf8(isolate, "normals");
 
   // Check the number of arguments passed.
   if (args.Length() < 1) {
     // Throw an Error that is passed back to JavaScript
     isolate->ThrowException(v8::Exception::TypeError(
         v8::String::NewFromUtf8(isolate, "Wrong number of arguments")));
-    return;
+    return v8::Null(isolate);
   }
   // Check the argument types
   if (!args[0]->IsObject()) {
     isolate->ThrowException(v8::Exception::TypeError(
         v8::String::NewFromUtf8(isolate, "Wrong arguments")));
-    return;
+    return v8::Null(isolate);
   }
 
   v8::Local<v8::Object> opts = args[0]->ToObject();
@@ -32,7 +34,7 @@ void March(const v8::FunctionCallbackInfo<v8::Value>& args) {
   if (!(width->IsNumber() && height->IsNumber() && depth->IsNumber() && data->IsFloat32Array())) {
     isolate->ThrowException(v8::Exception::TypeError(
         v8::String::NewFromUtf8(isolate, "Invalid options")));
-    return;
+    return v8::Null(isolate);
   }
 
   v8::Local<v8::Float32Array> dataArray = data.As<v8::Float32Array>();
@@ -109,14 +111,30 @@ void March(const v8::FunctionCallbackInfo<v8::Value>& args) {
   }
 
   v8::Local<v8::Object> result = v8::Object::New(isolate);
-  result->Set(v8::String::NewFromUtf8(isolate, "positions"), positions);
-  result->Set(v8::String::NewFromUtf8(isolate, "normals"), normals);
+  result->Set(positionsKey, positions);
+  result->Set(normalsKey, normals);
 
-  args.GetReturnValue().Set(result);
+  return result;
+}
+
+void MarchCubes(const v8::FunctionCallbackInfo<v8::Value>& args) {
+  args.GetReturnValue().Set(DoMarchCubes(args));
+}
+void MarchCubesPlanet(const v8::FunctionCallbackInfo<v8::Value>& args) {
+  v8::Isolate* isolate = args.GetIsolate();
+  auto positionsKey = v8::String::NewFromUtf8(isolate, "positions");
+  auto normalsKey = v8::String::NewFromUtf8(isolate, "normals");
+
+  v8::Local<v8::Object> marchingCubes = DoMarchCubes(args).As<v8::Object>();
+  v8::Local<v8::Value> positions = marchingCubes->Get(positionsKey).As<v8::Float32Array>();
+  v8::Local<v8::Value> normals = marchingCubes->Get(normalsKey).As<v8::Float32Array>();
+
+  args.GetReturnValue().Set(marchingCubes);
 }
 
 void Init(v8::Local<v8::Object> exports) {
-  NODE_SET_METHOD(exports, "march", March);
+  NODE_SET_METHOD(exports, "marchCubes", MarchCubes);
+  NODE_SET_METHOD(exports, "marchCubesPlanet", MarchCubesPlanet);
 }
 
 NODE_MODULE(addon, Init)
