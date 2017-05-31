@@ -8,14 +8,6 @@
 #define PI 3.14159265358979323846
 #define SIZE 50
 
-const siv::PerlinNoise elevationNoise(0);
-const float elevationNoiseFrequency = 0.01;
-const unsigned int elevationNoiseOctaves = 8;
-
-const siv::PerlinNoise moistureNoise(0);
-const float moistureNoiseFrequency = 0.04;
-const unsigned int moistureNoiseOctaves = 6;
-
 float heightmaps[SIZE * SIZE][6];
 
 typedef struct {
@@ -161,16 +153,16 @@ float _getValue(float x, float y, float z, float (&heightmaps)[npos][nmap]) {
   return v;
 }
 template <size_t npos>
-void _setHeightmap(float (&heightmap)[npos], const Vector2 &uv) {
+void _setHeightmap(float (&heightmap)[npos], siv::PerlinNoise &elevationNoise, const float elevationNoiseFrequency, const float elevationNoiseOctaves, const Vector2 &uv) {
   for (unsigned int i = 0; i < SIZE; i++) {
     for (unsigned int j = 0; j < SIZE; j++) {
       unsigned int index = i + (j * SIZE);
-      float v = 10 +
+      float v = 15 +
         elevationNoise.octaveNoise(
-          (SIZE * 2) + (((uv.x * SIZE) + i) * elevationNoiseFrequency), // offset to avoid artifacts at the origin
-          (SIZE * 2) + (((uv.y * SIZE) + j) * elevationNoiseFrequency),
+          (SIZE * 100) + (((uv.x * SIZE) + i) * elevationNoiseFrequency), // offset to avoid artifacts at the origin
+          (SIZE * 100) + (((uv.y * SIZE) + j) * elevationNoiseFrequency),
           elevationNoiseOctaves
-        ) * (SIZE - 10);
+        ) * (SIZE - 20);
       heightmap[index] = v;
     }
   }
@@ -178,6 +170,8 @@ void _setHeightmap(float (&heightmap)[npos], const Vector2 &uv) {
 
 v8::Local<v8::Value> DoMarchCubes(const v8::FunctionCallbackInfo<v8::Value>& args) {
   v8::Isolate* isolate = args.GetIsolate();
+  auto seedKey = v8::String::NewFromUtf8(isolate, "seed");
+  auto holesKey = v8::String::NewFromUtf8(isolate, "holes");
   auto positionsKey = v8::String::NewFromUtf8(isolate, "positions");
   auto normalsKey = v8::String::NewFromUtf8(isolate, "normals");
 
@@ -196,22 +190,27 @@ v8::Local<v8::Value> DoMarchCubes(const v8::FunctionCallbackInfo<v8::Value>& arg
   }
 
   v8::Local<v8::Object> opts = args[0]->ToObject();
-  v8::Local<v8::Value> holes = opts->Get(v8::String::NewFromUtf8(isolate, "holes"));
-  if (!(holes->IsInt32Array())) {
+  v8::Local<v8::Value> seed = opts->Get(seedKey);
+  v8::Local<v8::Value> holes = opts->Get(holesKey);
+  if (!(seed->IsNumber() && holes->IsInt32Array())) {
     isolate->ThrowException(v8::Exception::TypeError(
         v8::String::NewFromUtf8(isolate, "Invalid options")));
     return v8::Null(isolate);
   }
 
+  v8::Local<v8::Number> seedValue = seed.As<v8::Number>();
   v8::Local<v8::Int32Array> holesArray = holes.As<v8::Int32Array>();
 
   // generate heightmap
-  _setHeightmap(heightmaps[0], Vector2{0, 0}); // front
-  _setHeightmap(heightmaps[1], Vector2{0, -1}); // top
-  _setHeightmap(heightmaps[2], Vector2{0, 1}); // bottom
-  _setHeightmap(heightmaps[3], Vector2{-1, 0}); // left
-  _setHeightmap(heightmaps[4], Vector2{1, 0}); // right
-  _setHeightmap(heightmaps[5], Vector2{2, 0}); // back
+  siv::PerlinNoise elevationNoise(seedValue->Uint32Value());
+  const float elevationNoiseFrequency = 0.01;
+  const unsigned int elevationNoiseOctaves = 8;
+  _setHeightmap(heightmaps[0], elevationNoise, elevationNoiseFrequency, elevationNoiseOctaves, Vector2{0, 0}); // front
+  _setHeightmap(heightmaps[1], elevationNoise, elevationNoiseFrequency, elevationNoiseOctaves, Vector2{0, -1}); // top
+  _setHeightmap(heightmaps[2], elevationNoise, elevationNoiseFrequency, elevationNoiseOctaves, Vector2{0, 1}); // bottom
+  _setHeightmap(heightmaps[3], elevationNoise, elevationNoiseFrequency, elevationNoiseOctaves, Vector2{-1, 0}); // left
+  _setHeightmap(heightmaps[4], elevationNoise, elevationNoiseFrequency, elevationNoiseOctaves, Vector2{1, 0}); // right
+  _setHeightmap(heightmaps[5], elevationNoise, elevationNoiseFrequency, elevationNoiseOctaves, Vector2{2, 0}); // back
 
   // begin mc
   // Init data
@@ -359,13 +358,18 @@ unsigned int _getBiomeColor(float elevation, float moisture, float size) {
 }
 void MarchCubesPlanet(const v8::FunctionCallbackInfo<v8::Value>& args) {
   v8::Isolate* isolate = args.GetIsolate();
+  auto seedKey = v8::String::NewFromUtf8(isolate, "seed");
   auto positionsKey = v8::String::NewFromUtf8(isolate, "positions");
   auto colorsKey = v8::String::NewFromUtf8(isolate, "colors");
 
   v8::Local<v8::Object> marchingCubes = DoMarchCubes(args).As<v8::Object>();
   if (!marchingCubes->IsNull()) {
-    v8::Local<v8::Float32Array> positions = marchingCubes->Get(positionsKey).As<v8::Float32Array>();
+    v8::Local<v8::Number> seed = marchingCubes->Get(seedKey).As<v8::Number>();
+    siv::PerlinNoise moistureNoise(seed->Uint32Value());
+    const float moistureNoiseFrequency = 0.04;
+    const unsigned int moistureNoiseOctaves = 6;
 
+    v8::Local<v8::Float32Array> positions = marchingCubes->Get(positionsKey).As<v8::Float32Array>();
     unsigned int numPositions = positions->Length();
     unsigned int numTriangles = numPositions / 3;
     v8::Local<v8::Float32Array> colors = v8::Float32Array::New(v8::ArrayBuffer::New(isolate, numPositions * 4), 0, numPositions);
