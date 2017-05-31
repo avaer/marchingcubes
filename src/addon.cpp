@@ -6,13 +6,17 @@
 #include "PerlinNoise/PerlinNoise.hpp"
 
 #define PI 3.14159265358979323846
-#define SIZE 50
+#define SIZE 16
+#define RADIUS 50
 
 float heightmaps[SIZE * SIZE][6];
 
 typedef struct {
   real x, y, z;
 } Vector3;
+typedef struct {
+  unsigned int x, y, z;
+} IntVector3;
 typedef struct {
   real x, y;
 } Vector2;
@@ -85,10 +89,16 @@ Vector3 _multiply(const Vector3 &a, const Vector3 &b) {
   };
 }
 template <size_t npos>
-float _sideGenerator(const Vector3 &vector, const Vector3 &normal, const Vector3 &u, const Vector3 &v, float (&heightmap)[npos]) {
-  float length = _length(vector);
+float _sideGenerator(const Vector3 &vector, const IntVector3 &origin, const Vector3 &normal, const Vector3 &u, const Vector3 &v, float (&heightmap)[npos]) {
+  Vector3 absoluteVector{
+    vector.x + (origin.x * SIZE),
+    vector.y + (origin.y * SIZE),
+    vector.z + (origin.z * SIZE)
+  };
+
+  float length = _length(absoluteVector);
   if (length > 0) {
-    float angle = _angleTo(vector, normal);
+    float angle = _angleTo(absoluteVector, normal);
     float angleFactor = 1 - (angle / PI);
     unsigned int uIndex = static_cast<unsigned int>(_sum(_multiply(u, vector))) + (SIZE / 2);
     unsigned int vIndex = static_cast<unsigned int>(_sum(_multiply(v, vector))) + (SIZE / 2);
@@ -102,67 +112,73 @@ float _sideGenerator(const Vector3 &vector, const Vector3 &normal, const Vector3
   }
 };
 template <size_t npos, size_t nmap>
-float _getValue(float x, float y, float z, float (&heightmaps)[npos][nmap]) {
-  float dx = x - (SIZE / 2);
-  float dy = y - (SIZE / 2);
-  float dz = z - (SIZE / 2);
+float _getValue(const Vector3 &v, const IntVector3 &origin, float (&heightmaps)[npos][nmap]) {
+  Vector3 dv{
+    v.x - (SIZE / 2),
+    v.y - (SIZE / 2),
+    v.z - (SIZE / 2)
+  };
 
-  float v =
-    _sideGenerator( // front
-      Vector3{dx, dy, dz},
-      Vector3{0, 0, 1},
-      Vector3{1, 0, 0},
-      Vector3{0, 1, 0},
-      heightmaps[0]
-    ) +
-    _sideGenerator( // top
-      Vector3{dx, dy, dz},
-      Vector3{0, 1, 0},
-      Vector3{1, 0, 0},
-      Vector3{0, 0, 1},
-      heightmaps[1]
-    ) +
-    _sideGenerator( // bottom
-      Vector3{dx, dy, dz},
-      Vector3{0, 1, 0},
-      Vector3{1, 0, 0},
-      Vector3{0, 0, 1},
-      heightmaps[2]
-    ) +
-    _sideGenerator( // left
-      Vector3{dx, dy, dz},
-      Vector3{1, 0, 0},
-      Vector3{0, 0, 1},
-      Vector3{0, -1, 0},
-      heightmaps[3]
-    ) +
-    _sideGenerator( // right
-      Vector3{dx, dy, dz},
-      Vector3{1, 0, 0},
-      Vector3{0, 0, 1},
-      Vector3{0, 1, 0},
-      heightmaps[4]
-    ) +
-    _sideGenerator( // back
-      Vector3{dx, dy, dz},
-      Vector3{0, 0, 1},
-      Vector3{1, 0, 0},
-      Vector3{0, 1, 0},
-      heightmaps[5]
-    );
-  return v;
+  return _sideGenerator( // front
+    dv,
+    origin,
+    Vector3{0, 0, 1},
+    Vector3{1, 0, 0},
+    Vector3{0, 1, 0},
+    heightmaps[0]
+  ) +
+  _sideGenerator( // top
+    dv,
+    origin,
+    Vector3{0, 1, 0},
+    Vector3{1, 0, 0},
+    Vector3{0, 0, 1},
+    heightmaps[1]
+  ) +
+  _sideGenerator( // bottom
+    dv,
+    origin,
+    Vector3{0, 1, 0},
+    Vector3{1, 0, 0},
+    Vector3{0, 0, 1},
+    heightmaps[2]
+  ) +
+  _sideGenerator( // left
+    dv,
+    origin,
+    Vector3{1, 0, 0},
+    Vector3{0, 0, 1},
+    Vector3{0, -1, 0},
+    heightmaps[3]
+  ) +
+  _sideGenerator( // right
+    dv,
+    origin,
+    Vector3{1, 0, 0},
+    Vector3{0, 0, 1},
+    Vector3{0, 1, 0},
+    heightmaps[4]
+  ) +
+  _sideGenerator( // back
+    dv,
+    origin,
+    Vector3{0, 0, 1},
+    Vector3{1, 0, 0},
+    Vector3{0, 1, 0},
+    heightmaps[5]
+  );
 }
 template <size_t npos>
 void _setHeightmap(float (&heightmap)[npos], siv::PerlinNoise &elevationNoise, const float elevationNoiseFrequency, const float elevationNoiseOctaves, const Vector2 &uv) {
   for (unsigned int i = 0; i < SIZE; i++) {
     for (unsigned int j = 0; j < SIZE; j++) {
       unsigned int index = i + (j * SIZE);
-      float v = 15 +
+      float v = 10 +
         elevationNoise.octaveNoise(
-          (SIZE * 100) + (((uv.x * SIZE) + i) * elevationNoiseFrequency), // offset to avoid artifacts at the origin
-          (SIZE * 100) + (((uv.y * SIZE) + j) * elevationNoiseFrequency),
+          (RADIUS * 100) + (((uv.x * SIZE) + i) * elevationNoiseFrequency), // offset to avoid artifacts at the origin
+          (RADIUS * 100) + (((uv.y * SIZE) + j) * elevationNoiseFrequency),
           elevationNoiseOctaves
-        ) * (SIZE - 20);
+        ) * (RADIUS - 20);
       heightmap[index] = v;
     }
   }
@@ -171,6 +187,7 @@ void _setHeightmap(float (&heightmap)[npos], siv::PerlinNoise &elevationNoise, c
 v8::Local<v8::Value> DoMarchCubes(const v8::FunctionCallbackInfo<v8::Value>& args) {
   v8::Isolate* isolate = args.GetIsolate();
   auto seedKey = v8::String::NewFromUtf8(isolate, "seed");
+  auto originKey = v8::String::NewFromUtf8(isolate, "origin");
   auto holesKey = v8::String::NewFromUtf8(isolate, "holes");
   auto positionsKey = v8::String::NewFromUtf8(isolate, "positions");
   auto normalsKey = v8::String::NewFromUtf8(isolate, "normals");
@@ -191,10 +208,18 @@ v8::Local<v8::Value> DoMarchCubes(const v8::FunctionCallbackInfo<v8::Value>& arg
 
   v8::Local<v8::Object> opts = args[0]->ToObject();
   v8::Local<v8::Value> seed = opts->Get(seedKey);
+  v8::Local<v8::Value> origin = opts->Get(originKey);
   v8::Local<v8::Value> holes = opts->Get(holesKey);
-  if (!(seed->IsNumber() && holes->IsInt32Array())) {
+  if (!(seed->IsNumber() && origin->IsArray() && holes->IsInt32Array())) {
     isolate->ThrowException(v8::Exception::TypeError(
         v8::String::NewFromUtf8(isolate, "Invalid options")));
+    return v8::Null(isolate);
+  }
+
+  v8::Local<v8::Array> originValue = origin.As<v8::Array>();
+  if (originValue->Length() != 3) {
+    isolate->ThrowException(v8::Exception::TypeError(
+        v8::String::NewFromUtf8(isolate, "Invalid origin array")));
     return v8::Null(isolate);
   }
 
@@ -219,10 +244,19 @@ v8::Local<v8::Value> DoMarchCubes(const v8::FunctionCallbackInfo<v8::Value>& arg
   mc.init_all();
 
   // Fills data structure
+  IntVector3 originVector{
+    originValue->Get(0)->Uint32Value(),
+    originValue->Get(1)->Uint32Value(),
+    originValue->Get(2)->Uint32Value()
+  };
   for (unsigned int i = 0; i < SIZE; i++) {
     for (unsigned int j = 0; j < SIZE; j++) {
       for (unsigned int k = 0; k < SIZE; k++) {
-        float v = _getValue(i, j, k, heightmaps);
+        float v = _getValue(
+          Vector3{i, j, k},
+          originVector,
+          heightmaps
+        );
         mc.set_data(v, i, j, k);
       }
     }
@@ -237,15 +271,15 @@ v8::Local<v8::Value> DoMarchCubes(const v8::FunctionCallbackInfo<v8::Value>& arg
     int z = holesArray->Get(holeIndexBase + 2)->Int32Value();
 
     for (int i = -1; i <= 1; i++) {
-      int dx = x + i;
+      int dx = x + i - (originVector.x * SIZE);
 
       if (dx >= 0 && dx < SIZE) {
         for (int j = -1; j <= 1; j++) {
-          int dy = y + j;
+          int dy = y + j - (originVector.y * SIZE);
 
           if (dx >= 0 && dx < SIZE) {
             for (int k = -1; k <= 1; k++) {
-              int dz = z + k;
+              int dz = z + k - (originVector.z * SIZE);
 
               if (dz >= 0 && dz < SIZE) {
                 float distance = std::sqrt((i * i) + (j * j) + (k * k));
