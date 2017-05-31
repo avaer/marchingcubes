@@ -5,10 +5,25 @@
 #include "csg.h"
 #include "PerlinNoise/PerlinNoise.hpp"
 
-typedef struct
-{
+#define PI 3.14159265358979323846
+#define SIZE 50
+
+const siv::PerlinNoise elevationNoise(0);
+const float elevationNoiseFrequency = 0.04;
+const unsigned int elevationNoiseOctaves = 8;
+
+const siv::PerlinNoise moistureNoise(0);
+const float moistureNoiseFrequency = 0.04;
+const unsigned int moistureNoiseOctaves = 6;
+
+float heightmaps[SIZE * SIZE][6];
+
+typedef struct {
   real x, y, z;
-} Vector;
+} Vector3;
+typedef struct {
+  real x, y;
+} Vector2;
 
 enum class Biome : unsigned int {
   // Features
@@ -47,11 +62,117 @@ enum class Biome : unsigned int {
   MAGMA = 0xff3333,
 };
 
-// grid extension
-const float xmin=-1.0f, xmax=1.0f,  ymin=-1.0f, ymax=1.0f,  zmin=-1.0f, zmax=1.0f;
-const siv::PerlinNoise moistureNoise(0);
-const float moistureNoiseFrequency = 0.04;
-const unsigned int moistureNoiseOctaves = 6;
+float _sum(const Vector3 &v) {
+  return v.x + v.y + v.z;
+}
+float _length(const Vector3 &v) {
+  return std::sqrt(v.x * v.x + v.y * v.y + v.z * v.z);
+}
+float _dot(const Vector3 &a, const Vector3 &b) {
+  return a.x*b.x + a.y*b.y + a.z*b.z;
+}
+float _lenSq(const Vector3 &v) {
+  return v.x*v.x + v.y*v.y + v.z*v.z;
+}
+template <typename T>
+T _clamp(const T& n, const T& lower, const T& upper) {
+  return std::max(lower, std::min(n, upper));
+}
+float _angleTo(const Vector3 &a, const Vector3 &b) {
+  float dot = _dot(a, b);
+  float lenSq1 = _lenSq(a);
+  float lenSq2 = _lenSq(b);
+  float angle = std::acos(_clamp(dot / std::sqrt(lenSq1 * lenSq2), (float)(-1), (float)(1)));
+  return angle;
+}
+Vector3 _multiply(const Vector3 &a, const Vector3 &b) {
+  return Vector3{
+    a.x * b.x,
+    a.y * b.y,
+    a.z * b.z
+  };
+}
+template <size_t npos>
+float _sideGenerator(const Vector3 &vector, const Vector3 &normal, const Vector3 &u, const Vector3 &v, float (&heightmap)[npos]) {
+  float length = _length(vector);
+  if (length > 0) {
+    float angle = _angleTo(vector, normal);
+    float angleFactor = 1 - (angle / PI);
+    unsigned int uIndex = static_cast<unsigned int>(_sum(_multiply(u, vector))) + (SIZE / 2);
+    unsigned int vIndex = static_cast<unsigned int>(_sum(_multiply(v, vector))) + (SIZE / 2);
+    unsigned int index = uIndex + (vIndex * SIZE);
+    float heightValue = heightmap[index];
+    float insideOutsideValue = (length <= heightValue) ? -1 : 1;
+    float etherValue = insideOutsideValue * angleFactor;
+    return etherValue;
+  } else {
+    return -1;
+  }
+};
+template <size_t npos, size_t nmap>
+float _getValue(float x, float y, float z, float (&heightmaps)[npos][nmap]) {
+  float dx = x - (SIZE / 2);
+  float dy = y - (SIZE / 2);
+  float dz = z - (SIZE / 2);
+
+  float v =
+    _sideGenerator( // front
+      Vector3{dx, dy, dz},
+      Vector3{0, 0, 1},
+      Vector3{1, 0, 0},
+      Vector3{0, 1, 0},
+      heightmaps[0]
+    ) +
+    _sideGenerator( // top
+      Vector3{dx, dy, dz},
+      Vector3{0, 1, 0},
+      Vector3{1, 0, 0},
+      Vector3{0, 0, 1},
+      heightmaps[1]
+    ) +
+    _sideGenerator( // bottom
+      Vector3{dx, dy, dz},
+      Vector3{0, 1, 0},
+      Vector3{1, 0, 0},
+      Vector3{0, 0, 1},
+      heightmaps[2]
+    ) +
+    _sideGenerator( // left
+      Vector3{dx, dy, dz},
+      Vector3{1, 0, 0},
+      Vector3{0, 0, 1},
+      Vector3{0, -1, 0},
+      heightmaps[3]
+    ) +
+    _sideGenerator( // right
+      Vector3{dx, dy, dz},
+      Vector3{1, 0, 0},
+      Vector3{0, 0, 1},
+      Vector3{0, 1, 0},
+      heightmaps[4]
+    ) +
+    _sideGenerator( // back
+      Vector3{dx, dy, dz},
+      Vector3{0, 0, 1},
+      Vector3{1, 0, 0},
+      Vector3{0, 1, 0},
+      heightmaps[5]
+    );
+  return v;
+}
+template <size_t npos>
+void _setHeightmap(float (&heightmap)[npos], const Vector2 &uv) {
+  for (unsigned int i = 0; i < SIZE; i++) {
+    for (unsigned int j = 0; j < SIZE; j++) {
+      unsigned int index = i + (j * SIZE);
+      heightmap[index] = elevationNoise.octaveNoise(
+        ((uv.x * SIZE) + i) * elevationNoiseFrequency,
+        ((uv.y * SIZE) + j) * elevationNoiseFrequency,
+        elevationNoiseOctaves
+      ) * 20;
+    }
+  }
+}
 
 v8::Local<v8::Value> DoMarchCubes(const v8::FunctionCallbackInfo<v8::Value>& args) {
   v8::Isolate* isolate = args.GetIsolate();
@@ -72,42 +193,36 @@ v8::Local<v8::Value> DoMarchCubes(const v8::FunctionCallbackInfo<v8::Value>& arg
     return v8::Null(isolate);
   }
 
-  v8::Local<v8::Object> opts = args[0]->ToObject();
+  /* v8::Local<v8::Object> opts = args[0]->ToObject();
   v8::Local<v8::Value> width = opts->Get(v8::String::NewFromUtf8(isolate, "width"));
   v8::Local<v8::Value> height = opts->Get(v8::String::NewFromUtf8(isolate, "height"));
   v8::Local<v8::Value> depth = opts->Get(v8::String::NewFromUtf8(isolate, "depth"));
-  v8::Local<v8::Value> data = opts->Get(v8::String::NewFromUtf8(isolate, "data"));
-  if (!(width->IsNumber() && height->IsNumber() && depth->IsNumber() && data->IsFloat32Array())) {
+  if (!(width->IsNumber() && height->IsNumber() && depth->IsNumber())) {
     isolate->ThrowException(v8::Exception::TypeError(
         v8::String::NewFromUtf8(isolate, "Invalid options")));
     return v8::Null(isolate);
-  }
+  } */
 
-  v8::Local<v8::Float32Array> dataArray = data.As<v8::Float32Array>();
+  // generate heightmap
+  _setHeightmap(heightmaps[0], Vector2{0, 0}); // front
+  _setHeightmap(heightmaps[1], Vector2{0, -1}); // top
+  _setHeightmap(heightmaps[2], Vector2{0, 1}); // bottom
+  _setHeightmap(heightmaps[3], Vector2{-1, 0}); // left
+  _setHeightmap(heightmaps[4], Vector2{1, 0}); // right
+  _setHeightmap(heightmaps[5], Vector2{2, 0}); // back
 
   // begin mc
-  // grid size control
-  int size_x = width->ToInt32()->Value(), size_y = height->ToInt32()->Value(), size_z = depth->ToInt32()->Value();
-  int half_size_x = size_x / 2, half_size_y = size_y / 2, half_size_z = size_z / 2;
-
   // Init data
   MarchingCubes mc;
-  mc.set_resolution( size_x, size_y, size_z ) ;
-  mc.init_all() ;
+  mc.set_resolution(SIZE, SIZE, SIZE);
+  mc.init_all();
 
   // Fills data structure
-  int i,j,k ;
-  float w ;
-  unsigned int index;
-  for( i = 0 ; i < size_x ; i++ )
-  {
-    for( j = 0 ; j < size_y ; j++ )
-    {
-      for( k = 0 ; k < size_z ; k++ )
-      {
-        index = i + (j * size_x) + (k * size_x * size_y);
-        w = (float)dataArray->Get(index)->NumberValue();
-        mc.set_data( w, i, j, k ) ;
+  for (unsigned int i = 0; i < SIZE ; i++) {
+    for (unsigned int j = 0; j < SIZE ; j++) {
+      for (unsigned int k = 0; k < SIZE ; k++) {
+        float v = _getValue(i, j, k, heightmaps);
+        mc.set_data(v, i, j, k);
       }
     }
   }
@@ -116,6 +231,7 @@ v8::Local<v8::Value> DoMarchCubes(const v8::FunctionCallbackInfo<v8::Value>& arg
   mc.run();
   // end mc
 
+  // construct result
   unsigned int numTrigs = mc.ntrigs();
   unsigned int numVerts = numTrigs * 3;
   unsigned int numPositions = numVerts * 3;
@@ -132,15 +248,15 @@ v8::Local<v8::Value> DoMarchCubes(const v8::FunctionCallbackInfo<v8::Value>& arg
     const Vertex &c = vertices[triangle.v3];
 
     unsigned int baseIndex = i * 3 * 3;
-    positions->Set(baseIndex + 0, v8::Number::New(isolate, a.x - half_size_x));
-    positions->Set(baseIndex + 1, v8::Number::New(isolate, a.y - half_size_y));
-    positions->Set(baseIndex + 2, v8::Number::New(isolate, a.z - half_size_z));
-    positions->Set(baseIndex + 3, v8::Number::New(isolate, b.x - half_size_x));
-    positions->Set(baseIndex + 4, v8::Number::New(isolate, b.y - half_size_y));
-    positions->Set(baseIndex + 5, v8::Number::New(isolate, b.z - half_size_z));
-    positions->Set(baseIndex + 6, v8::Number::New(isolate, c.x - half_size_x));
-    positions->Set(baseIndex + 7, v8::Number::New(isolate, c.y - half_size_y));
-    positions->Set(baseIndex + 8, v8::Number::New(isolate, c.z - half_size_z));
+    positions->Set(baseIndex + 0, v8::Number::New(isolate, a.x - (SIZE / 2)));
+    positions->Set(baseIndex + 1, v8::Number::New(isolate, a.y - (SIZE / 2)));
+    positions->Set(baseIndex + 2, v8::Number::New(isolate, a.z - (SIZE / 2)));
+    positions->Set(baseIndex + 3, v8::Number::New(isolate, b.x - (SIZE / 2)));
+    positions->Set(baseIndex + 4, v8::Number::New(isolate, b.y - (SIZE / 2)));
+    positions->Set(baseIndex + 5, v8::Number::New(isolate, b.z - (SIZE / 2)));
+    positions->Set(baseIndex + 6, v8::Number::New(isolate, c.x - (SIZE / 2)));
+    positions->Set(baseIndex + 7, v8::Number::New(isolate, c.y - (SIZE / 2)));
+    positions->Set(baseIndex + 8, v8::Number::New(isolate, c.z - (SIZE / 2)));
 
     normals->Set(baseIndex + 0, v8::Number::New(isolate, a.nx));
     normals->Set(baseIndex + 1, v8::Number::New(isolate, a.ny));
@@ -203,12 +319,10 @@ unsigned int _getBiomeColor(float elevation, float moisture, float size) {
 void MarchCubesPlanet(const v8::FunctionCallbackInfo<v8::Value>& args) {
   v8::Isolate* isolate = args.GetIsolate();
   auto positionsKey = v8::String::NewFromUtf8(isolate, "positions");
-  auto normalsKey = v8::String::NewFromUtf8(isolate, "normals");
   auto colorsKey = v8::String::NewFromUtf8(isolate, "colors");
 
   v8::Local<v8::Object> marchingCubes = DoMarchCubes(args).As<v8::Object>();
   v8::Local<v8::Float32Array> positions = marchingCubes->Get(positionsKey).As<v8::Float32Array>();
-  v8::Local<v8::Float32Array> normals = marchingCubes->Get(normalsKey).As<v8::Float32Array>();
 
   unsigned int numPositions = positions->Length();
   unsigned int numTriangles = numPositions / 3;
@@ -216,28 +330,33 @@ void MarchCubesPlanet(const v8::FunctionCallbackInfo<v8::Value>& args) {
   for (unsigned int i = 0; i < numTriangles; i++) {
     unsigned int triangleBaseIndex = i * 3 * 3;
 
-    Vector pa{
-      positions->Get(triangleBaseIndex + 0)->NumberValue(),
-      positions->Get(triangleBaseIndex + 1)->NumberValue(),
-      positions->Get(triangleBaseIndex + 2)->NumberValue()
+    Vector3 pa{
+      (float)positions->Get(triangleBaseIndex + 0)->NumberValue(),
+      (float)positions->Get(triangleBaseIndex + 1)->NumberValue(),
+      (float)positions->Get(triangleBaseIndex + 2)->NumberValue()
     };
-    Vector pb{
-      positions->Get(triangleBaseIndex + 3)->NumberValue(),
-      positions->Get(triangleBaseIndex + 4)->NumberValue(),
-      positions->Get(triangleBaseIndex + 5)->NumberValue()
+    Vector3 pb{
+      (float)positions->Get(triangleBaseIndex + 3)->NumberValue(),
+      (float)positions->Get(triangleBaseIndex + 4)->NumberValue(),
+      (float)positions->Get(triangleBaseIndex + 5)->NumberValue()
     };
-    Vector pc{
-      positions->Get(triangleBaseIndex + 6)->NumberValue(),
-      positions->Get(triangleBaseIndex + 7)->NumberValue(),
-      positions->Get(triangleBaseIndex + 8)->NumberValue()
+    Vector3 pc{
+      (float)positions->Get(triangleBaseIndex + 6)->NumberValue(),
+      (float)positions->Get(triangleBaseIndex + 7)->NumberValue(),
+      (float)positions->Get(triangleBaseIndex + 8)->NumberValue()
     };
-    Vector center{
+    Vector3 center{
       (pa.x + pb.x + pc.x) / 3,
       (pa.y + pb.y + pc.y) / 3,
       (pa.z + pb.z + pc.z) / 3
     };
     float elevation = std::sqrt(center.x * center.x + center.y * center.y + center.z * center.z);
-    float moisture = moistureNoise.octaveNoise(center.x * moistureNoiseFrequency, center.y * moistureNoiseFrequency, center.z * moistureNoiseFrequency, moistureNoiseOctaves);
+    float moisture = moistureNoise.octaveNoise(
+      center.x * moistureNoiseFrequency,
+      center.y * moistureNoiseFrequency,
+      center.z * moistureNoiseFrequency,
+      moistureNoiseOctaves
+    );
     unsigned int c = _getBiomeColor(elevation, moisture, 50);
     float r = (float)((c >> (8 * 2)) & 0xFF) / 0xFF;
     float g = (float)((c >> (8 * 1)) & 0xFF) / 0xFF;
