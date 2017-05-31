@@ -10,6 +10,43 @@ typedef struct
   real x, y, z;
 } Vector;
 
+enum class Biome : unsigned int {
+  // Features
+  OCEAN = 0x44447a,
+  // OCEAN = 0x000000,
+  // COAST = 0x33335a,
+  COAST = 0x333333,
+  LAKESHORE = 0x225588,
+  LAKE = 0x336699,
+  RIVER = 0x225588,
+  MARSH = 0x2f6666,
+  // ICE = 0x99ffff,
+  ICE = 0x99dddd,
+  // BEACH = 0xa09077,
+  BEACH = 0xa0b077,
+  ROAD1 = 0x442211,
+  ROAD2 = 0x553322,
+  ROAD3 = 0x664433,
+  BRIDGE = 0x686860,
+  LAVA = 0xcc3333,
+
+  // Terrain
+  SNOW = 0xffffff,
+  TUNDRA = 0xbbbbaa,
+  BARE = 0x888888,
+  SCORCHED = 0x555555,
+  TAIGA = 0x99aa77,
+  SHRUBLAND = 0x889977,
+  TEMPERATE_DESERT = 0xc9d29b,
+  TEMPERATE_RAIN_FOREST = 0x448855,
+  TEMPERATE_DECIDUOUS_FOREST = 0x679459,
+  GRASSLAND = 0x88aa55,
+  SUBTROPICAL_DESERT = 0xd2b98b,
+  TROPICAL_RAIN_FOREST = 0x337755,
+  TROPICAL_SEASONAL_FOREST = 0x559944,
+  MAGMA = 0xff3333,
+};
+
 // grid extension
 const float xmin=-1.0f, xmax=1.0f,  ymin=-1.0f, ymax=1.0f,  zmin=-1.0f, zmax=1.0f;
 const siv::PerlinNoise moistureNoise(0);
@@ -126,8 +163,42 @@ v8::Local<v8::Value> DoMarchCubes(const v8::FunctionCallbackInfo<v8::Value>& arg
 void MarchCubes(const v8::FunctionCallbackInfo<v8::Value>& args) {
   args.GetReturnValue().Set(DoMarchCubes(args));
 }
-unsigned int _getBiomeColor(float elevation, float moisture) { // XXX
-  return 0x0;
+Biome _getBiome(float elevation, float moisture, float size) {
+  /* if (coast) {
+    return Biome::BEACH;
+  } else if (ocean) {
+    return Biome::OCEAN;
+  } else if (p.water) {
+    if (elevation < (size * 0.1)) { return 'MARSH'; }
+    if (elevation > (size * 0.25)) { return 'ICE'; }
+    return Biome::LAKE;
+  } else if (lava > 2) {
+    return Biome::MAGMA;
+  } else */if (elevation > (size * 0.3)) {
+    if (moisture > 0.50) { return Biome::SNOW; }
+    else if (moisture > 0.33) { return Biome::TUNDRA; }
+    else if (moisture > 0.16) { return Biome::BARE; }
+    else { return Biome::SCORCHED; }
+  } else if (elevation > (size * 0.25)) {
+    if (moisture > 0.66) { return Biome::TAIGA; }
+    else if (moisture > 0.33) { return Biome::SHRUBLAND; }
+    else { return Biome::TEMPERATE_DESERT; }
+  } else if (elevation > (size * 0.1)) {
+    if (moisture > 0.83) { return Biome::TEMPERATE_RAIN_FOREST; }
+    else if (moisture > 0.50) { return Biome::TEMPERATE_DECIDUOUS_FOREST; }
+    else if (moisture > 0.16) { return Biome::GRASSLAND; }
+    else { return Biome::TEMPERATE_DESERT; }
+  } else {
+    if (moisture > 0.66) { return Biome::TROPICAL_RAIN_FOREST; }
+    else if (moisture > 0.33) { return Biome::TROPICAL_SEASONAL_FOREST; }
+    else if (moisture > 0.16) { return Biome::GRASSLAND; }
+    else { return Biome::SUBTROPICAL_DESERT; }
+  }
+};
+unsigned int _getBiomeColor(float elevation, float moisture, float size) {
+  auto biome = _getBiome(elevation, moisture, size);
+  auto biomeColor = (unsigned int)biome;
+  return biomeColor;
 }
 void MarchCubesPlanet(const v8::FunctionCallbackInfo<v8::Value>& args) {
   v8::Isolate* isolate = args.GetIsolate();
@@ -167,7 +238,7 @@ void MarchCubesPlanet(const v8::FunctionCallbackInfo<v8::Value>& args) {
     };
     float elevation = std::sqrt(center.x * center.x + center.y * center.y + center.z * center.z);
     float moisture = moistureNoise.octaveNoise(center.x * moistureNoiseFrequency, center.y * moistureNoiseFrequency, center.z, moistureNoiseOctaves);
-    unsigned int c = _getBiomeColor(elevation, moisture);
+    unsigned int c = _getBiomeColor(elevation, moisture, 50);
     float r = (float)((c >> (8 * 2)) & 0xFF) / 0xFF;
     float g = (float)((c >> (8 * 1)) & 0xFF) / 0xFF;
     float b = (float)((c >> (8 * 0)) & 0xFF) / 0xFF;
