@@ -3,9 +3,18 @@
 #include "MarchingCubes.h"
 #include "LookUpTable.h"
 #include "csg.h"
+#include "PerlinNoise/PerlinNoise.hpp"
+
+typedef struct
+{
+  real x, y, z;
+} Vector;
 
 // grid extension
-float xmin=-1.0f, xmax=1.0f,  ymin=-1.0f, ymax=1.0f,  zmin=-1.0f, zmax=1.0f ;
+const float xmin=-1.0f, xmax=1.0f,  ymin=-1.0f, ymax=1.0f,  zmin=-1.0f, zmax=1.0f;
+const siv::PerlinNoise moistureNoise(0);
+const float moistureNoiseFrequency = 0.04;
+const unsigned int moistureNoiseOctaves = 6;
 
 v8::Local<v8::Value> DoMarchCubes(const v8::FunctionCallbackInfo<v8::Value>& args) {
   v8::Isolate* isolate = args.GetIsolate();
@@ -53,9 +62,6 @@ v8::Local<v8::Value> DoMarchCubes(const v8::FunctionCallbackInfo<v8::Value>& arg
   int i,j,k ;
   float w ;
   unsigned int index;
-  float rx = (xmax-xmin) / (size_x - 1) ;
-  float ry = (ymax-ymin) / (size_y - 1) ;
-  float rz = (zmax-zmin) / (size_z - 1) ;
   for( i = 0 ; i < size_x ; i++ )
   {
     for( j = 0 ; j < size_y ; j++ )
@@ -120,6 +126,9 @@ v8::Local<v8::Value> DoMarchCubes(const v8::FunctionCallbackInfo<v8::Value>& arg
 void MarchCubes(const v8::FunctionCallbackInfo<v8::Value>& args) {
   args.GetReturnValue().Set(DoMarchCubes(args));
 }
+unsigned int _getBiomeColor(float elevation, float moisture) { // XXX
+  return 0x0;
+}
 void MarchCubesPlanet(const v8::FunctionCallbackInfo<v8::Value>& args) {
   v8::Isolate* isolate = args.GetIsolate();
   auto positionsKey = v8::String::NewFromUtf8(isolate, "positions");
@@ -127,8 +136,8 @@ void MarchCubesPlanet(const v8::FunctionCallbackInfo<v8::Value>& args) {
   auto colorsKey = v8::String::NewFromUtf8(isolate, "colors");
 
   v8::Local<v8::Object> marchingCubes = DoMarchCubes(args).As<v8::Object>();
-  v8::Local<v8::Value> positions = marchingCubes->Get(positionsKey).As<v8::Float32Array>();
-  v8::Local<v8::Value> normals = marchingCubes->Get(normalsKey).As<v8::Float32Array>();
+  v8::Local<v8::Float32Array> positions = marchingCubes->Get(positionsKey).As<v8::Float32Array>();
+  v8::Local<v8::Float32Array> normals = marchingCubes->Get(normalsKey).As<v8::Float32Array>();
 
   unsigned int numPositions = positions->Length() / 3;
   unsigned int numTriangles = numPositions / 3;
@@ -136,29 +145,29 @@ void MarchCubesPlanet(const v8::FunctionCallbackInfo<v8::Value>& args) {
   for (unsigned int i = 0; i < numTriangles; i++) {
     unsigned int triangleBaseIndex = i * 3 * 3;
 
-    Vertex pa(
-      positions[triangleBaseIndex + 0],
-      positions[triangleBaseIndex + 1],
-      positions[triangleBaseIndex + 2]
-    );
-    Vertex pb(
-      positions[triangleBaseIndex + 3],
-      positions[triangleBaseIndex + 4],
-      positions[triangleBaseIndex + 5]
-    );
-    Vertex pc(
-      positions[triangleBaseIndex + 6],
-      positions[triangleBaseIndex + 7],
-      positions[triangleBaseIndex + 8]
-    );
-    Vertex center(
+    Vector pa{
+      positions->Get(triangleBaseIndex + 0)->NumberValue(),
+      positions->Get(triangleBaseIndex + 1)->NumberValue(),
+      positions->Get(triangleBaseIndex + 2)->NumberValue()
+    };
+    Vector pb{
+      positions->Get(triangleBaseIndex + 3)->NumberValue(),
+      positions->Get(triangleBaseIndex + 4)->NumberValue(),
+      positions->Get(triangleBaseIndex + 5)->NumberValue()
+    };
+    Vector pc{
+      positions->Get(triangleBaseIndex + 6)->NumberValue(),
+      positions->Get(triangleBaseIndex + 7)->NumberValue(),
+      positions->Get(triangleBaseIndex + 8)->NumberValue()
+    };
+    Vector center{
       (pa.x + pb.x + pb.x) / 3,
       (pa.y + pb.y + pb.y) / 3,
       (pa.z + pb.z + pb.z) / 3
-    );
+    };
     float elevation = std::sqrt(center.x * center.x + center.y * center.y + center.z * center.z);
-    float moisture = moistureNoise.in3D(center.x, center.y, center.z); // XXX
-    unsigned int c = _getBiomeColor(elevation, moisture); // XXX
+    float moisture = moistureNoise.octaveNoise(center.x * moistureNoiseFrequency, center.y * moistureNoiseFrequency, center.z, moistureNoiseOctaves);
+    unsigned int c = _getBiomeColor(elevation, moisture);
     float r = (float)((c >> (8 * 2)) & 0xFF) / 0xFF;
     float g = (float)((c >> (8 * 1)) & 0xFF) / 0xFF;
     float b = (float)((c >> (8 * 0)) & 0xFF) / 0xFF;
