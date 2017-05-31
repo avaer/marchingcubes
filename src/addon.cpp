@@ -7,15 +7,17 @@
 
 #define PI 3.14159265358979323846
 #define SIZE 16
+#define BUFFER 1
+#define SIZE_BUFFERED (SIZE + (BUFFER * 2))
 #define RADIUS 50
 
-float heightmaps[SIZE * SIZE][6];
+float heightmaps[SIZE_BUFFERED * SIZE_BUFFERED][6];
 
 typedef struct {
   real x, y, z;
 } Vector3;
 typedef struct {
-  unsigned int x, y, z;
+  int x, y, z;
 } IntVector3;
 typedef struct {
   real x, y;
@@ -90,19 +92,24 @@ Vector3 _multiply(const Vector3 &a, const Vector3 &b) {
 }
 template <size_t npos>
 float _sideGenerator(const Vector3 &vector, const IntVector3 &origin, const Vector3 &normal, const Vector3 &u, const Vector3 &v, float (&heightmap)[npos]) {
+  Vector3 localVector{
+    vector.x - (SIZE_BUFFERED / 2),
+    vector.y - (SIZE_BUFFERED / 2),
+    vector.z - (SIZE_BUFFERED / 2)
+  };
   Vector3 absoluteVector{
-    vector.x + (origin.x * SIZE),
-    vector.y + (origin.y * SIZE),
-    vector.z + (origin.z * SIZE)
+    localVector.x + (origin.x * SIZE),
+    localVector.y + (origin.y * SIZE),
+    localVector.z + (origin.z * SIZE)
   };
 
   float length = _length(absoluteVector);
   if (length > 0) {
     float angle = _angleTo(absoluteVector, normal);
     float angleFactor = 1 - (angle / PI);
-    unsigned int uIndex = static_cast<unsigned int>(_sum(_multiply(u, vector))) + (SIZE / 2);
-    unsigned int vIndex = static_cast<unsigned int>(_sum(_multiply(v, vector))) + (SIZE / 2);
-    unsigned int index = uIndex + (vIndex * SIZE);
+    int uIndex = _sum(_multiply(u, localVector)) + (SIZE_BUFFERED / 2);
+    int vIndex = _sum(_multiply(v, localVector)) + (SIZE_BUFFERED / 2);
+    int index = uIndex + (vIndex * SIZE_BUFFERED);
     float heightValue = heightmap[index];
     float insideOutsideValue = (length <= heightValue) ? -1 : 1;
     float etherValue = insideOutsideValue * angleFactor;
@@ -111,77 +118,27 @@ float _sideGenerator(const Vector3 &vector, const IntVector3 &origin, const Vect
     return -1;
   }
 };
-template <size_t npos, size_t nmap>
-float _getValue(const Vector3 &v, const IntVector3 &origin, float (&heightmaps)[npos][nmap]) {
-  Vector3 dv{
-    v.x - (SIZE / 2),
-    v.y - (SIZE / 2),
-    v.z - (SIZE / 2)
+float _getValue(const Vector3 &vector, const IntVector3 &origin, siv::PerlinNoise &elevationNoise, const float elevationNoiseFrequency, const float elevationNoiseOctaves, const float etherLimit) {
+  Vector3 localVector{
+    vector.x - (SIZE_BUFFERED / 2),
+    vector.y - (SIZE_BUFFERED / 2),
+    vector.z - (SIZE_BUFFERED / 2)
+  };
+  Vector3 absoluteVector{
+    localVector.x + (origin.x * SIZE),
+    localVector.y + (origin.y * SIZE),
+    localVector.z + (origin.z * SIZE)
   };
 
-  return _sideGenerator( // front
-    dv,
-    origin,
-    Vector3{0, 0, 1},
-    Vector3{1, 0, 0},
-    Vector3{0, 1, 0},
-    heightmaps[0]
-  ) +
-  _sideGenerator( // top
-    dv,
-    origin,
-    Vector3{0, 1, 0},
-    Vector3{1, 0, 0},
-    Vector3{0, 0, 1},
-    heightmaps[1]
-  ) +
-  _sideGenerator( // bottom
-    dv,
-    origin,
-    Vector3{0, 1, 0},
-    Vector3{1, 0, 0},
-    Vector3{0, 0, 1},
-    heightmaps[2]
-  ) +
-  _sideGenerator( // left
-    dv,
-    origin,
-    Vector3{1, 0, 0},
-    Vector3{0, 0, 1},
-    Vector3{0, -1, 0},
-    heightmaps[3]
-  ) +
-  _sideGenerator( // right
-    dv,
-    origin,
-    Vector3{1, 0, 0},
-    Vector3{0, 0, 1},
-    Vector3{0, 1, 0},
-    heightmaps[4]
-  ) +
-  _sideGenerator( // back
-    dv,
-    origin,
-    Vector3{0, 0, 1},
-    Vector3{1, 0, 0},
-    Vector3{0, 1, 0},
-    heightmaps[5]
-  );
-}
-template <size_t npos>
-void _setHeightmap(float (&heightmap)[npos], siv::PerlinNoise &elevationNoise, const float elevationNoiseFrequency, const float elevationNoiseOctaves, const Vector2 &uv) {
-  for (unsigned int i = 0; i < SIZE; i++) {
-    for (unsigned int j = 0; j < SIZE; j++) {
-      unsigned int index = i + (j * SIZE);
-      float v = 10 +
-        elevationNoise.octaveNoise(
-          (RADIUS * 100) + (((uv.x * SIZE) + i) * elevationNoiseFrequency), // offset to avoid artifacts at the origin
-          (RADIUS * 100) + (((uv.y * SIZE) + j) * elevationNoiseFrequency),
-          elevationNoiseOctaves
-        ) * (RADIUS - 20);
-      heightmap[index] = v;
-    }
-  }
+  float ether = std::abs(elevationNoise.octaveNoise(
+    (absoluteVector.x * elevationNoiseFrequency),
+    (absoluteVector.y * elevationNoiseFrequency),
+    (absoluteVector.z * elevationNoiseFrequency),
+    elevationNoiseOctaves
+  ));
+  float length = _length(absoluteVector);
+  float value = std::pow(length, 2.25) - (ether * etherLimit);
+  return value;
 }
 
 v8::Local<v8::Value> DoMarchCubes(const v8::FunctionCallbackInfo<v8::Value>& args) {
@@ -227,35 +184,37 @@ v8::Local<v8::Value> DoMarchCubes(const v8::FunctionCallbackInfo<v8::Value>& arg
   v8::Local<v8::Int32Array> holesArray = holes.As<v8::Int32Array>();
 
   // generate heightmap
-  siv::PerlinNoise elevationNoise(seedValue->Uint32Value());
-  const float elevationNoiseFrequency = 0.01;
+  IntVector3 originVector{
+    originValue->Get(0)->Int32Value(),
+    originValue->Get(1)->Int32Value(),
+    originValue->Get(2)->Int32Value()
+  };
+  siv::PerlinNoise elevationNoise(seedValue->Uint32Value() + 0);
+  const float elevationNoiseFrequency = 0.05;
   const unsigned int elevationNoiseOctaves = 8;
-  _setHeightmap(heightmaps[0], elevationNoise, elevationNoiseFrequency, elevationNoiseOctaves, Vector2{0, 0}); // front
-  _setHeightmap(heightmaps[1], elevationNoise, elevationNoiseFrequency, elevationNoiseOctaves, Vector2{0, -1}); // top
-  _setHeightmap(heightmaps[2], elevationNoise, elevationNoiseFrequency, elevationNoiseOctaves, Vector2{0, 1}); // bottom
-  _setHeightmap(heightmaps[3], elevationNoise, elevationNoiseFrequency, elevationNoiseOctaves, Vector2{-1, 0}); // left
-  _setHeightmap(heightmaps[4], elevationNoise, elevationNoiseFrequency, elevationNoiseOctaves, Vector2{1, 0}); // right
-  _setHeightmap(heightmaps[5], elevationNoise, elevationNoiseFrequency, elevationNoiseOctaves, Vector2{2, 0}); // back
+  const float etherLimit = 800;
 
   // begin mc
   // Init data
   MarchingCubes mc;
-  mc.set_resolution(SIZE, SIZE, SIZE);
+  mc.set_resolution(SIZE_BUFFERED, SIZE_BUFFERED, SIZE_BUFFERED);
   mc.init_all();
 
   // Fills data structure
-  IntVector3 originVector{
-    originValue->Get(0)->Uint32Value(),
-    originValue->Get(1)->Uint32Value(),
-    originValue->Get(2)->Uint32Value()
-  };
-  for (unsigned int i = 0; i < SIZE; i++) {
-    for (unsigned int j = 0; j < SIZE; j++) {
-      for (unsigned int k = 0; k < SIZE; k++) {
+  for (unsigned int i = 0; i < SIZE_BUFFERED; i++) {
+    for (unsigned int j = 0; j < SIZE_BUFFERED; j++) {
+      for (unsigned int k = 0; k < SIZE_BUFFERED; k++) {
         float v = _getValue(
-          Vector3{i, j, k},
+          Vector3{
+            i,
+            j,
+            k
+          },
           originVector,
-          heightmaps
+          elevationNoise,
+          elevationNoiseFrequency,
+          elevationNoiseOctaves,
+          etherLimit
         );
         mc.set_data(v, i, j, k);
       }
@@ -273,15 +232,15 @@ v8::Local<v8::Value> DoMarchCubes(const v8::FunctionCallbackInfo<v8::Value>& arg
     for (int i = -1; i <= 1; i++) {
       int dx = x + i - (originVector.x * SIZE);
 
-      if (dx >= 0 && dx < SIZE) {
+      if (dx >= 0 && dx < SIZE_BUFFERED) {
         for (int j = -1; j <= 1; j++) {
           int dy = y + j - (originVector.y * SIZE);
 
-          if (dx >= 0 && dx < SIZE) {
+          if (dx >= 0 && dx < SIZE_BUFFERED) {
             for (int k = -1; k <= 1; k++) {
               int dz = z + k - (originVector.z * SIZE);
 
-              if (dz >= 0 && dz < SIZE) {
+              if (dz >= 0 && dz < SIZE_BUFFERED) {
                 float distance = std::sqrt((i * i) + (j * j) + (k * k));
                 float distanceFactor = distance / std::sqrt(3);
                 float valueFactor = 1 - distanceFactor;
@@ -322,15 +281,15 @@ v8::Local<v8::Value> DoMarchCubes(const v8::FunctionCallbackInfo<v8::Value>& arg
     const Vertex &c = vertices[triangle.v3];
 
     unsigned int baseIndex = i * 3 * 3;
-    positions->Set(baseIndex + 0, v8::Number::New(isolate, a.x - (SIZE / 2)));
-    positions->Set(baseIndex + 1, v8::Number::New(isolate, a.y - (SIZE / 2)));
-    positions->Set(baseIndex + 2, v8::Number::New(isolate, a.z - (SIZE / 2)));
-    positions->Set(baseIndex + 3, v8::Number::New(isolate, b.x - (SIZE / 2)));
-    positions->Set(baseIndex + 4, v8::Number::New(isolate, b.y - (SIZE / 2)));
-    positions->Set(baseIndex + 5, v8::Number::New(isolate, b.z - (SIZE / 2)));
-    positions->Set(baseIndex + 6, v8::Number::New(isolate, c.x - (SIZE / 2)));
-    positions->Set(baseIndex + 7, v8::Number::New(isolate, c.y - (SIZE / 2)));
-    positions->Set(baseIndex + 8, v8::Number::New(isolate, c.z - (SIZE / 2)));
+    positions->Set(baseIndex + 0, v8::Number::New(isolate, a.x - (SIZE_BUFFERED / 2)));
+    positions->Set(baseIndex + 1, v8::Number::New(isolate, a.y - (SIZE_BUFFERED / 2)));
+    positions->Set(baseIndex + 2, v8::Number::New(isolate, a.z - (SIZE_BUFFERED / 2)));
+    positions->Set(baseIndex + 3, v8::Number::New(isolate, b.x - (SIZE_BUFFERED / 2)));
+    positions->Set(baseIndex + 4, v8::Number::New(isolate, b.y - (SIZE_BUFFERED / 2)));
+    positions->Set(baseIndex + 5, v8::Number::New(isolate, b.z - (SIZE_BUFFERED / 2)));
+    positions->Set(baseIndex + 6, v8::Number::New(isolate, c.x - (SIZE_BUFFERED / 2)));
+    positions->Set(baseIndex + 7, v8::Number::New(isolate, c.y - (SIZE_BUFFERED / 2)));
+    positions->Set(baseIndex + 8, v8::Number::New(isolate, c.z - (SIZE_BUFFERED / 2)));
 
     normals->Set(baseIndex + 0, v8::Number::New(isolate, a.nx));
     normals->Set(baseIndex + 1, v8::Number::New(isolate, a.ny));
@@ -353,7 +312,7 @@ v8::Local<v8::Value> DoMarchCubes(const v8::FunctionCallbackInfo<v8::Value>& arg
 void MarchCubes(const v8::FunctionCallbackInfo<v8::Value>& args) {
   args.GetReturnValue().Set(DoMarchCubes(args));
 }
-Biome _getBiome(float elevation, float moisture, float size) {
+Biome _getBiome(float elevation, float moisture) {
   /* if (coast) {
     return Biome::BEACH;
   } else if (ocean) {
@@ -364,19 +323,19 @@ Biome _getBiome(float elevation, float moisture, float size) {
     return Biome::LAKE;
   } else if (lava > 2) {
     return Biome::MAGMA;
-  } else */if (elevation > (size * 0.3)) {
+  } else */if (elevation > (RADIUS * 0.3)) {
     if (moisture > 0.50) { return Biome::SNOW; }
     else if (moisture > 0.33) { return Biome::TUNDRA; }
     else if (moisture > 0.16) { return Biome::BARE; }
     else { return Biome::SCORCHED; }
-  } else if (elevation > (size * 0.25)) {
+  } else if (elevation > (RADIUS * 0.2)) {
     if (moisture > 0.66) { return Biome::TAIGA; }
     else if (moisture > 0.33) { return Biome::SHRUBLAND; }
     else { return Biome::TEMPERATE_DESERT; }
-  } else if (elevation > (size * 0.1)) {
-    if (moisture > 0.83) { return Biome::TEMPERATE_RAIN_FOREST; }
-    else if (moisture > 0.50) { return Biome::TEMPERATE_DECIDUOUS_FOREST; }
-    else if (moisture > 0.16) { return Biome::GRASSLAND; }
+  } else if (elevation > (RADIUS * 0.15)) {
+    if (moisture > 0.8) { return Biome::TEMPERATE_RAIN_FOREST; }
+    else if (moisture > 0.5) { return Biome::TEMPERATE_DECIDUOUS_FOREST; }
+    else if (moisture > 0.1) { return Biome::GRASSLAND; }
     else { return Biome::TEMPERATE_DESERT; }
   } else {
     if (moisture > 0.66) { return Biome::TROPICAL_RAIN_FOREST; }
@@ -385,20 +344,24 @@ Biome _getBiome(float elevation, float moisture, float size) {
     else { return Biome::SUBTROPICAL_DESERT; }
   }
 };
-unsigned int _getBiomeColor(float elevation, float moisture, float size) {
-  auto biome = _getBiome(elevation, moisture, size);
+unsigned int _getBiomeColor(float elevation, float moisture) {
+  auto biome = _getBiome(elevation, moisture);
   auto biomeColor = (unsigned int)biome;
   return biomeColor;
 }
 void MarchCubesPlanet(const v8::FunctionCallbackInfo<v8::Value>& args) {
   v8::Isolate* isolate = args.GetIsolate();
   auto seedKey = v8::String::NewFromUtf8(isolate, "seed");
+  auto originKey = v8::String::NewFromUtf8(isolate, "origin");
   auto positionsKey = v8::String::NewFromUtf8(isolate, "positions");
   auto colorsKey = v8::String::NewFromUtf8(isolate, "colors");
 
   v8::Local<v8::Object> marchingCubes = DoMarchCubes(args).As<v8::Object>();
   if (!marchingCubes->IsNull()) {
+    v8::Local<v8::Object> opts = args[0]->ToObject();
+    v8::Local<v8::Array> originValue = opts->Get(originKey).As<v8::Array>();
     v8::Local<v8::Number> seed = marchingCubes->Get(seedKey).As<v8::Number>();
+
     siv::PerlinNoise moistureNoise(seed->Uint32Value());
     const float moistureNoiseFrequency = 0.04;
     const unsigned int moistureNoiseOctaves = 6;
@@ -430,14 +393,24 @@ void MarchCubesPlanet(const v8::FunctionCallbackInfo<v8::Value>& args) {
         (pa.y + pb.y + pc.y) / 3,
         (pa.z + pb.z + pc.z) / 3
       };
-      float elevation = std::sqrt(center.x * center.x + center.y * center.y + center.z * center.z);
-      float moisture = moistureNoise.octaveNoise(
+      IntVector3 originVector{
+        originValue->Get(0)->Int32Value(),
+        originValue->Get(1)->Int32Value(),
+        originValue->Get(2)->Int32Value()
+      };
+      Vector3 absoluteVector{
+        center.x + (originVector.x * SIZE),
+        center.y + (originVector.y * SIZE),
+        center.z + (originVector.z * SIZE)
+      };
+      float elevation = std::sqrt(absoluteVector.x * absoluteVector.x + absoluteVector.y * absoluteVector.y + absoluteVector.z * absoluteVector.z);
+      float moisture = std::abs(moistureNoise.octaveNoise(
         center.x * moistureNoiseFrequency,
         center.y * moistureNoiseFrequency,
         center.z * moistureNoiseFrequency,
         moistureNoiseOctaves
-      );
-      unsigned int c = _getBiomeColor(elevation, moisture, 50);
+      )) * 10;
+      unsigned int c = _getBiomeColor(elevation, moisture);
       float r = (float)((c >> (8 * 2)) & 0xFF) / 0xFF;
       float g = (float)((c >> (8 * 1)) & 0xFF) / 0xFF;
       float b = (float)((c >> (8 * 0)) & 0xFF) / 0xFF;
