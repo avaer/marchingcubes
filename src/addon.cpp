@@ -9,7 +9,7 @@
 #define SIZE 50
 
 const siv::PerlinNoise elevationNoise(0);
-const float elevationNoiseFrequency = 0.04;
+const float elevationNoiseFrequency = 0.01;
 const unsigned int elevationNoiseOctaves = 8;
 
 const siv::PerlinNoise moistureNoise(0);
@@ -165,11 +165,13 @@ void _setHeightmap(float (&heightmap)[npos], const Vector2 &uv) {
   for (unsigned int i = 0; i < SIZE; i++) {
     for (unsigned int j = 0; j < SIZE; j++) {
       unsigned int index = i + (j * SIZE);
-      heightmap[index] = elevationNoise.octaveNoise(
-        ((uv.x * SIZE) + i) * elevationNoiseFrequency,
-        ((uv.y * SIZE) + j) * elevationNoiseFrequency,
-        elevationNoiseOctaves
-      ) * 20;
+      float v = 10 +
+        elevationNoise.octaveNoise(
+          ((uv.x * SIZE) + i) * elevationNoiseFrequency,
+          ((uv.y * SIZE) + j) * elevationNoiseFrequency,
+          elevationNoiseOctaves
+        ) * (SIZE - 10);
+      heightmap[index] = v;
     }
   }
 }
