@@ -210,7 +210,7 @@ void MarchCubesPlanet(const v8::FunctionCallbackInfo<v8::Value>& args) {
   v8::Local<v8::Float32Array> positions = marchingCubes->Get(positionsKey).As<v8::Float32Array>();
   v8::Local<v8::Float32Array> normals = marchingCubes->Get(normalsKey).As<v8::Float32Array>();
 
-  unsigned int numPositions = positions->Length() / 3;
+  unsigned int numPositions = positions->Length();
   unsigned int numTriangles = numPositions / 3;
   v8::Local<v8::Float32Array> colors = v8::Float32Array::New(v8::ArrayBuffer::New(isolate, numPositions * 4), 0, numPositions);
   for (unsigned int i = 0; i < numTriangles; i++) {
@@ -232,12 +232,12 @@ void MarchCubesPlanet(const v8::FunctionCallbackInfo<v8::Value>& args) {
       positions->Get(triangleBaseIndex + 8)->NumberValue()
     };
     Vector center{
-      (pa.x + pb.x + pb.x) / 3,
-      (pa.y + pb.y + pb.y) / 3,
-      (pa.z + pb.z + pb.z) / 3
+      (pa.x + pb.x + pc.x) / 3,
+      (pa.y + pb.y + pc.y) / 3,
+      (pa.z + pb.z + pc.z) / 3
     };
     float elevation = std::sqrt(center.x * center.x + center.y * center.y + center.z * center.z);
-    float moisture = moistureNoise.octaveNoise(center.x * moistureNoiseFrequency, center.y * moistureNoiseFrequency, center.z, moistureNoiseOctaves);
+    float moisture = moistureNoise.octaveNoise(center.x * moistureNoiseFrequency, center.y * moistureNoiseFrequency, center.z * moistureNoiseFrequency, moistureNoiseOctaves);
     unsigned int c = _getBiomeColor(elevation, moisture, 50);
     float r = (float)((c >> (8 * 2)) & 0xFF) / 0xFF;
     float g = (float)((c >> (8 * 1)) & 0xFF) / 0xFF;
