@@ -124,10 +124,53 @@ void MarchCubesPlanet(const v8::FunctionCallbackInfo<v8::Value>& args) {
   v8::Isolate* isolate = args.GetIsolate();
   auto positionsKey = v8::String::NewFromUtf8(isolate, "positions");
   auto normalsKey = v8::String::NewFromUtf8(isolate, "normals");
+  auto colorsKey = v8::String::NewFromUtf8(isolate, "colors");
 
   v8::Local<v8::Object> marchingCubes = DoMarchCubes(args).As<v8::Object>();
   v8::Local<v8::Value> positions = marchingCubes->Get(positionsKey).As<v8::Float32Array>();
   v8::Local<v8::Value> normals = marchingCubes->Get(normalsKey).As<v8::Float32Array>();
+
+  unsigned int numPositions = positions->Length() / 3;
+  unsigned int numTriangles = numPositions / 3;
+  v8::Local<v8::Float32Array> colors = v8::Float32Array::New(v8::ArrayBuffer::New(isolate, numPositions * 4), 0, numPositions);
+  for (unsigned int i = 0; i < numTriangles; i++) {
+    unsigned int triangleBaseIndex = i * 3 * 3;
+
+    Vertex pa(
+      positions[triangleBaseIndex + 0],
+      positions[triangleBaseIndex + 1],
+      positions[triangleBaseIndex + 2]
+    );
+    Vertex pb(
+      positions[triangleBaseIndex + 3],
+      positions[triangleBaseIndex + 4],
+      positions[triangleBaseIndex + 5]
+    );
+    Vertex pc(
+      positions[triangleBaseIndex + 6],
+      positions[triangleBaseIndex + 7],
+      positions[triangleBaseIndex + 8]
+    );
+    Vertex center(
+      (pa.x + pb.x + pb.x) / 3,
+      (pa.y + pb.y + pb.y) / 3,
+      (pa.z + pb.z + pb.z) / 3
+    );
+    float elevation = std::sqrt(center.x * center.x + center.y * center.y + center.z * center.z);
+    float moisture = moistureNoise.in3D(center.x, center.y, center.z); // XXX
+    unsigned int c = _getBiomeColor(elevation, moisture); // XXX
+    float r = (float)((c >> (8 * 2)) & 0xFF) / 0xFF;
+    float g = (float)((c >> (8 * 1)) & 0xFF) / 0xFF;
+    float b = (float)((c >> (8 * 0)) & 0xFF) / 0xFF;
+    for (unsigned int j = 0; j < 3; j++) {
+      unsigned int positionBaseIndex = triangleBaseIndex + (j * 3);
+      colors->Set(positionBaseIndex + 0, v8::Number::New(isolate, r));
+      colors->Set(positionBaseIndex + 1, v8::Number::New(isolate, g));
+      colors->Set(positionBaseIndex + 2, v8::Number::New(isolate, b));
+    }
+  }
+
+  marchingCubes->Set(colorsKey, colors);
 
   args.GetReturnValue().Set(marchingCubes);
 }
