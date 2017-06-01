@@ -1,4 +1,4 @@
-const marchingcubes = require('./build/Debug/addon');
+const marchingcubes = require('./build/Release/addon');
 
 module.exports = marchingcubes;
 

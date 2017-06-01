@@ -95,34 +95,6 @@ Vector3 _multiply(const Vector3 &a, const Vector3 &b) {
     a.z * b.z
   };
 }
-template <size_t npos>
-float _sideGenerator(const Vector3 &vector, const IntVector3 &origin, const Vector3 &normal, const Vector3 &u, const Vector3 &v, float (&heightmap)[npos]) {
-  Vector3 localVector{
-    vector.x - (SIZE_BUFFERED / 2),
-    vector.y - (SIZE_BUFFERED / 2),
-    vector.z - (SIZE_BUFFERED / 2)
-  };
-  Vector3 absoluteVector{
-    localVector.x + (origin.x * SIZE),
-    localVector.y + (origin.y * SIZE),
-    localVector.z + (origin.z * SIZE)
-  };
-
-  float length = _length(absoluteVector);
-  if (length > 0) {
-    float angle = _angleTo(absoluteVector, normal);
-    float angleFactor = 1 - (angle / PI);
-    int uIndex = _sum(_multiply(u, localVector)) + (SIZE_BUFFERED / 2);
-    int vIndex = _sum(_multiply(v, localVector)) + (SIZE_BUFFERED / 2);
-    int index = uIndex + (vIndex * SIZE_BUFFERED);
-    float heightValue = heightmap[index];
-    float insideOutsideValue = (length <= heightValue) ? -1 : 1;
-    float etherValue = insideOutsideValue * angleFactor;
-    return etherValue;
-  } else {
-    return -1;
-  }
-};
 float _getValue(
   const Vector3 &vector,
   const IntVector3 &origin,
@@ -159,8 +131,8 @@ float _getValue(
 v8::Local<v8::Value> DoMarchCubes(
   v8::Isolate* isolate,
   unsigned int seedNumber,
-  const v8::Local<v8::Array> &originValue,
-  const v8::Local<v8::Int32Array> &holesValue,
+  v8::Local<v8::Array> originValue,
+  v8::Local<v8::Int32Array> holesValue,
   const float noiseFrequency,
   const unsigned int noiseOctaves,
   const float minValue,
@@ -168,6 +140,8 @@ v8::Local<v8::Value> DoMarchCubes(
   const float lengthPow,
   const float etherFactor
 ) {
+  v8::EscapableHandleScope scope(isolate);
+
   auto positionsKey = v8::String::NewFromUtf8(isolate, "positions");
   auto normalsKey = v8::String::NewFromUtf8(isolate, "normals");
 
@@ -182,9 +156,9 @@ v8::Local<v8::Value> DoMarchCubes(
 
   // begin mc
   // Init data
-  MarchingCubes mc;
-  mc.set_resolution(SIZE_BUFFERED, SIZE_BUFFERED, SIZE_BUFFERED);
-  mc.init_all();
+  MarchingCubes mc(SIZE_BUFFERED, SIZE_BUFFERED, SIZE_BUFFERED);
+  // mc.set_resolution();
+  // mc.init_all();
 
   // Fills data structure
   for (unsigned int i = 0; i < SIZE_BUFFERED; i++) {
@@ -217,22 +191,22 @@ v8::Local<v8::Value> DoMarchCubes(
     int y = holesValue->Get(holeIndexBase + 1)->Int32Value();
     int z = holesValue->Get(holeIndexBase + 2)->Int32Value();
 
-    for (int i = -1; i <= 1; i++) {
-      int dx = x + i - (originVector.x * SIZE);
+    for (int i = -2; i <= 2; i++) {
+      int dx = BUFFER + x + i - (originVector.x * SIZE);
 
       if (dx >= 0 && dx < SIZE_BUFFERED) {
-        for (int j = -1; j <= 1; j++) {
-          int dy = y + j - (originVector.y * SIZE);
+        for (int j = -2; j <= 2; j++) {
+          int dy = BUFFER + y + j - (originVector.y * SIZE);
 
-          if (dx >= 0 && dx < SIZE_BUFFERED) {
-            for (int k = -1; k <= 1; k++) {
-              int dz = z + k - (originVector.z * SIZE);
+          if (dy >= 0 && dy < SIZE_BUFFERED) {
+            for (int k = -2; k <= 2; k++) {
+              int dz = BUFFER + z + k - (originVector.z * SIZE);
 
               if (dz >= 0 && dz < SIZE_BUFFERED) {
                 float distance = std::sqrt((i * i) + (j * j) + (k * k));
-                float distanceFactor = distance / std::sqrt(3);
-                float valueFactor = 1 - distanceFactor;
-                float v = valueFactor * 1.5;
+                float distanceFactor = distance / std::sqrt(2*2 + 2*2 + 2*2);
+                float valueFactor = std::pow(1 - distanceFactor, 3);
+                float v = valueFactor * 500;
 
                 mc.set_data(
                   mc.get_data(ivec3(dx, dy, dz)) + v,
@@ -257,8 +231,10 @@ v8::Local<v8::Value> DoMarchCubes(
   unsigned int numVerts = numTrigs * 3;
   unsigned int numPositions = numVerts * 3;
   unsigned int numNormals = numVerts * 3;
-  v8::Local<v8::Float32Array> positions = v8::Float32Array::New(v8::ArrayBuffer::New(isolate, numPositions * 4), 0, numPositions);
-  v8::Local<v8::Float32Array> normals = v8::Float32Array::New(v8::ArrayBuffer::New(isolate, numNormals * 4), 0, numNormals);
+  v8::Local<v8::ArrayBuffer> positionsBuffer = v8::ArrayBuffer::New(isolate, numPositions * 4);
+  v8::Local<v8::Float32Array> positions = v8::Float32Array::New(positionsBuffer, 0, numPositions);
+  v8::Local<v8::ArrayBuffer> normalsBuffer = v8::ArrayBuffer::New(isolate, numNormals * 4);
+  v8::Local<v8::Float32Array> normals = v8::Float32Array::New(normalsBuffer, 0, numNormals);
 
   auto triangles = mc.triangles();
   auto vertices = mc.vertices();
@@ -318,11 +294,13 @@ v8::Local<v8::Value> DoMarchCubes(
   result->Set(positionsKey, positions);
   result->Set(normalsKey, normals);
 
-  return result;
+  return scope.Escape(result);
 }
 
 void MarchCubes(const v8::FunctionCallbackInfo<v8::Value>& args) {
   v8::Isolate* isolate = args.GetIsolate();
+  v8::EscapableHandleScope scope(isolate);
+
   auto seedKey = v8::String::NewFromUtf8(isolate, "seed");
   auto originKey = v8::String::NewFromUtf8(isolate, "origin");
   auto holesKey = v8::String::NewFromUtf8(isolate, "holes");
@@ -374,7 +352,7 @@ void MarchCubes(const v8::FunctionCallbackInfo<v8::Value>& args) {
     800 // etherFactor
   );
 
-  args.GetReturnValue().Set(result);
+  args.GetReturnValue().Set(scope.Escape(result));
 }
 Biome _getBiome(float elevation, float moisture) {
   /* if (coast) {
@@ -415,6 +393,8 @@ unsigned int _getBiomeColor(float elevation, float moisture) {
 }
 void MarchCubesPlanet(const v8::FunctionCallbackInfo<v8::Value>& args) {
   v8::Isolate* isolate = args.GetIsolate();
+  v8::EscapableHandleScope scope(isolate);
+
   auto seedKey = v8::String::NewFromUtf8(isolate, "seed");
   auto originKey = v8::String::NewFromUtf8(isolate, "origin");
   auto holesKey = v8::String::NewFromUtf8(isolate, "holes");
@@ -496,7 +476,8 @@ void MarchCubesPlanet(const v8::FunctionCallbackInfo<v8::Value>& args) {
     v8::Local<v8::Float32Array> positions = land->Get(positionsKey).As<v8::Float32Array>();
     unsigned int numPositions = positions->Length();
     unsigned int numTriangles = numPositions / 3;
-    v8::Local<v8::Float32Array> colors = v8::Float32Array::New(v8::ArrayBuffer::New(isolate, numPositions * 4), 0, numPositions);
+    v8::Local<v8::ArrayBuffer> colorsBuffer = v8::ArrayBuffer::New(isolate, numPositions * 4);
+    v8::Local<v8::Float32Array> colors = v8::Float32Array::New(colorsBuffer, 0, numPositions);
     for (unsigned int i = 0; i < numTriangles; i++) {
       unsigned int triangleBaseIndex = i * 3 * 3;
 
@@ -556,10 +537,9 @@ void MarchCubesPlanet(const v8::FunctionCallbackInfo<v8::Value>& args) {
     result->Set(landKey, land);
     result->Set(waterKey, water);
 
-    args.GetReturnValue().Set(result);
+    args.GetReturnValue().Set(scope.Escape(result));
   } else {
-
-    args.GetReturnValue().Set(v8::Null(isolate));
+    args.GetReturnValue().Set(scope.Escape(v8::Null(isolate)));
   }
 }
 
