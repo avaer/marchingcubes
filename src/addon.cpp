@@ -262,32 +262,56 @@ v8::Local<v8::Value> DoMarchCubes(
 
   auto triangles = mc.triangles();
   auto vertices = mc.vertices();
+  unsigned int index = 0;
   for (unsigned int i = 0; i < numTrigs; i++) {
     const Triangle &triangle = triangles[i];
     const Vertex &a = vertices[triangle.v1];
     const Vertex &b = vertices[triangle.v2];
     const Vertex &c = vertices[triangle.v3];
 
-    unsigned int baseIndex = i * 3 * 3;
-    positions->Set(baseIndex + 0, v8::Number::New(isolate, a.x - (SIZE_BUFFERED / 2)));
-    positions->Set(baseIndex + 1, v8::Number::New(isolate, a.y - (SIZE_BUFFERED / 2)));
-    positions->Set(baseIndex + 2, v8::Number::New(isolate, a.z - (SIZE_BUFFERED / 2)));
-    positions->Set(baseIndex + 3, v8::Number::New(isolate, b.x - (SIZE_BUFFERED / 2)));
-    positions->Set(baseIndex + 4, v8::Number::New(isolate, b.y - (SIZE_BUFFERED / 2)));
-    positions->Set(baseIndex + 5, v8::Number::New(isolate, b.z - (SIZE_BUFFERED / 2)));
-    positions->Set(baseIndex + 6, v8::Number::New(isolate, c.x - (SIZE_BUFFERED / 2)));
-    positions->Set(baseIndex + 7, v8::Number::New(isolate, c.y - (SIZE_BUFFERED / 2)));
-    positions->Set(baseIndex + 8, v8::Number::New(isolate, c.z - (SIZE_BUFFERED / 2)));
+    const Vertex da{
+      a.x - BUFFER,
+      a.y - BUFFER,
+      a.z - BUFFER
+    };
+    const Vertex db{
+      b.x - BUFFER,
+      b.y - BUFFER,
+      b.z - BUFFER
+    };
+    const Vertex dc{
+      c.x - BUFFER,
+      c.y - BUFFER,
+      c.z - BUFFER
+    };
+    if (
+        da.x >= 0 && da.x <= SIZE && da.y >= 0 && da.y <= SIZE && da.z >= 0 && da.z <= SIZE &&
+        db.x >= 0 && db.x <= SIZE && db.y >= 0 && db.y <= SIZE && db.z >= 0 && db.z <= SIZE &&
+        dc.x >= 0 && dc.x <= SIZE && dc.y >= 0 && dc.y <= SIZE && dc.z >= 0 && dc.z <= SIZE
+    ) {
+      unsigned int baseIndex = index * 3 * 3;
+      positions->Set(baseIndex + 0, v8::Number::New(isolate, a.x - (SIZE_BUFFERED / 2)));
+      positions->Set(baseIndex + 1, v8::Number::New(isolate, a.y - (SIZE_BUFFERED / 2)));
+      positions->Set(baseIndex + 2, v8::Number::New(isolate, a.z - (SIZE_BUFFERED / 2)));
+      positions->Set(baseIndex + 3, v8::Number::New(isolate, b.x - (SIZE_BUFFERED / 2)));
+      positions->Set(baseIndex + 4, v8::Number::New(isolate, b.y - (SIZE_BUFFERED / 2)));
+      positions->Set(baseIndex + 5, v8::Number::New(isolate, b.z - (SIZE_BUFFERED / 2)));
+      positions->Set(baseIndex + 6, v8::Number::New(isolate, c.x - (SIZE_BUFFERED / 2)));
+      positions->Set(baseIndex + 7, v8::Number::New(isolate, c.y - (SIZE_BUFFERED / 2)));
+      positions->Set(baseIndex + 8, v8::Number::New(isolate, c.z - (SIZE_BUFFERED / 2)));
 
-    normals->Set(baseIndex + 0, v8::Number::New(isolate, a.nx));
-    normals->Set(baseIndex + 1, v8::Number::New(isolate, a.ny));
-    normals->Set(baseIndex + 2, v8::Number::New(isolate, a.nz));
-    normals->Set(baseIndex + 3, v8::Number::New(isolate, b.nx));
-    normals->Set(baseIndex + 4, v8::Number::New(isolate, b.ny));
-    normals->Set(baseIndex + 5, v8::Number::New(isolate, b.nz));
-    normals->Set(baseIndex + 6, v8::Number::New(isolate, c.nx));
-    normals->Set(baseIndex + 7, v8::Number::New(isolate, c.ny));
-    normals->Set(baseIndex + 8, v8::Number::New(isolate, c.nz));
+      normals->Set(baseIndex + 0, v8::Number::New(isolate, a.nx));
+      normals->Set(baseIndex + 1, v8::Number::New(isolate, a.ny));
+      normals->Set(baseIndex + 2, v8::Number::New(isolate, a.nz));
+      normals->Set(baseIndex + 3, v8::Number::New(isolate, b.nx));
+      normals->Set(baseIndex + 4, v8::Number::New(isolate, b.ny));
+      normals->Set(baseIndex + 5, v8::Number::New(isolate, b.nz));
+      normals->Set(baseIndex + 6, v8::Number::New(isolate, c.nx));
+      normals->Set(baseIndex + 7, v8::Number::New(isolate, c.ny));
+      normals->Set(baseIndex + 8, v8::Number::New(isolate, c.nz));
+
+      index++;
+    }
   }
 
   v8::Local<v8::Object> result = v8::Object::New(isolate);
