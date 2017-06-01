@@ -11,7 +11,12 @@
 #define SIZE_BUFFERED (SIZE + (BUFFER * 2))
 #define RADIUS 50
 
-float heightmaps[SIZE_BUFFERED * SIZE_BUFFERED][6];
+siv::PerlinNoise noise;
+const float elevationNoiseFrequency = 0.05;
+const unsigned int elevationNoiseOctaves = 8;
+
+const float moistureNoiseFrequency = 0.04;
+const unsigned int moistureNoiseOctaves =  6;
 
 typedef struct {
   real x, y, z;
@@ -118,7 +123,16 @@ float _sideGenerator(const Vector3 &vector, const IntVector3 &origin, const Vect
     return -1;
   }
 };
-float _getValue(const Vector3 &vector, const IntVector3 &origin, siv::PerlinNoise &elevationNoise, const float elevationNoiseFrequency, const float elevationNoiseOctaves, const float etherLimit) {
+float _getValue(
+  const Vector3 &vector,
+  const IntVector3 &origin,
+  const float noiseFrequency,
+  const unsigned int noiseOctaves,
+  const float minValue,
+  const float factor,
+  const float lengthPow,
+  const float etherFactor
+) {
   Vector3 localVector{
     vector.x - (SIZE_BUFFERED / 2),
     vector.y - (SIZE_BUFFERED / 2),
@@ -130,58 +144,32 @@ float _getValue(const Vector3 &vector, const IntVector3 &origin, siv::PerlinNois
     localVector.z + (origin.z * SIZE)
   };
 
-  float ether = std::abs(elevationNoise.octaveNoise(
-    (absoluteVector.x * elevationNoiseFrequency),
-    (absoluteVector.y * elevationNoiseFrequency),
-    (absoluteVector.z * elevationNoiseFrequency),
-    elevationNoiseOctaves
+  float ether = std::abs(noise.octaveNoise(
+    (absoluteVector.x * noiseFrequency),
+    (absoluteVector.y * noiseFrequency),
+    (absoluteVector.z * noiseFrequency),
+    noiseOctaves
   ));
   float length = _length(absoluteVector);
-  float value = std::pow(length, 2.25) - (ether * etherLimit);
+  float lengthValue = -minValue + std::pow(length, lengthPow) / factor;
+  float value = lengthValue - (ether * etherFactor);
   return value;
 }
 
-v8::Local<v8::Value> DoMarchCubes(const v8::FunctionCallbackInfo<v8::Value>& args) {
-  v8::Isolate* isolate = args.GetIsolate();
-  auto seedKey = v8::String::NewFromUtf8(isolate, "seed");
-  auto originKey = v8::String::NewFromUtf8(isolate, "origin");
-  auto holesKey = v8::String::NewFromUtf8(isolate, "holes");
+v8::Local<v8::Value> DoMarchCubes(
+  v8::Isolate* isolate,
+  unsigned int seedNumber,
+  const v8::Local<v8::Array> &originValue,
+  const v8::Local<v8::Int32Array> &holesValue,
+  const float noiseFrequency,
+  const unsigned int noiseOctaves,
+  const float minValue,
+  const float factor,
+  const float lengthPow,
+  const float etherFactor
+) {
   auto positionsKey = v8::String::NewFromUtf8(isolate, "positions");
   auto normalsKey = v8::String::NewFromUtf8(isolate, "normals");
-
-  // Check the number of arguments passed.
-  if (args.Length() < 1) {
-    // Throw an Error that is passed back to JavaScript
-    isolate->ThrowException(v8::Exception::TypeError(
-        v8::String::NewFromUtf8(isolate, "Wrong number of arguments")));
-    return v8::Null(isolate);
-  }
-  // Check the argument types
-  if (!args[0]->IsObject()) {
-    isolate->ThrowException(v8::Exception::TypeError(
-        v8::String::NewFromUtf8(isolate, "Wrong arguments")));
-    return v8::Null(isolate);
-  }
-
-  v8::Local<v8::Object> opts = args[0]->ToObject();
-  v8::Local<v8::Value> seed = opts->Get(seedKey);
-  v8::Local<v8::Value> origin = opts->Get(originKey);
-  v8::Local<v8::Value> holes = opts->Get(holesKey);
-  if (!(seed->IsNumber() && origin->IsArray() && holes->IsInt32Array())) {
-    isolate->ThrowException(v8::Exception::TypeError(
-        v8::String::NewFromUtf8(isolate, "Invalid options")));
-    return v8::Null(isolate);
-  }
-
-  v8::Local<v8::Array> originValue = origin.As<v8::Array>();
-  if (originValue->Length() != 3) {
-    isolate->ThrowException(v8::Exception::TypeError(
-        v8::String::NewFromUtf8(isolate, "Invalid origin array")));
-    return v8::Null(isolate);
-  }
-
-  v8::Local<v8::Number> seedValue = seed.As<v8::Number>();
-  v8::Local<v8::Int32Array> holesArray = holes.As<v8::Int32Array>();
 
   // generate heightmap
   IntVector3 originVector{
@@ -189,10 +177,8 @@ v8::Local<v8::Value> DoMarchCubes(const v8::FunctionCallbackInfo<v8::Value>& arg
     originValue->Get(1)->Int32Value(),
     originValue->Get(2)->Int32Value()
   };
-  siv::PerlinNoise elevationNoise(seedValue->Uint32Value() + 0);
-  const float elevationNoiseFrequency = 0.05;
-  const unsigned int elevationNoiseOctaves = 8;
-  const float etherLimit = 800;
+
+  noise.reseed(seedNumber);
 
   // begin mc
   // Init data
@@ -211,10 +197,12 @@ v8::Local<v8::Value> DoMarchCubes(const v8::FunctionCallbackInfo<v8::Value>& arg
             k
           },
           originVector,
-          elevationNoise,
-          elevationNoiseFrequency,
-          elevationNoiseOctaves,
-          etherLimit
+          noiseFrequency,
+          noiseOctaves,
+          minValue,
+          factor,
+          lengthPow,
+          etherFactor
         );
         mc.set_data(v, i, j, k);
       }
@@ -222,12 +210,12 @@ v8::Local<v8::Value> DoMarchCubes(const v8::FunctionCallbackInfo<v8::Value>& arg
   }
 
   // Adjust for holes
-  unsigned int numHoles = holesArray->Length() / 3;
+  unsigned int numHoles = holesValue->Length() / 3;
   for (unsigned int h = 0; h < numHoles; h++) {
     unsigned int holeIndexBase = h * 3;
-    int x = holesArray->Get(holeIndexBase + 0)->Int32Value();
-    int y = holesArray->Get(holeIndexBase + 1)->Int32Value();
-    int z = holesArray->Get(holeIndexBase + 2)->Int32Value();
+    int x = holesValue->Get(holeIndexBase + 0)->Int32Value();
+    int y = holesValue->Get(holeIndexBase + 1)->Int32Value();
+    int z = holesValue->Get(holeIndexBase + 2)->Int32Value();
 
     for (int i = -1; i <= 1; i++) {
       int dx = x + i - (originVector.x * SIZE);
@@ -310,7 +298,59 @@ v8::Local<v8::Value> DoMarchCubes(const v8::FunctionCallbackInfo<v8::Value>& arg
 }
 
 void MarchCubes(const v8::FunctionCallbackInfo<v8::Value>& args) {
-  args.GetReturnValue().Set(DoMarchCubes(args));
+  v8::Isolate* isolate = args.GetIsolate();
+  auto seedKey = v8::String::NewFromUtf8(isolate, "seed");
+  auto originKey = v8::String::NewFromUtf8(isolate, "origin");
+  auto holesKey = v8::String::NewFromUtf8(isolate, "holes");
+
+  // Check the number of arguments passed.
+  if (args.Length() < 1) {
+    // Throw an Error that is passed back to JavaScript
+    isolate->ThrowException(v8::Exception::TypeError(
+        v8::String::NewFromUtf8(isolate, "Wrong number of arguments")));
+    return;
+  }
+  // Check the argument types
+  if (!args[0]->IsObject()) {
+    isolate->ThrowException(v8::Exception::TypeError(
+        v8::String::NewFromUtf8(isolate, "Wrong arguments")));
+    return;
+  }
+
+  v8::Local<v8::Object> opts = args[0]->ToObject();
+  v8::Local<v8::Value> seed = opts->Get(seedKey);
+  v8::Local<v8::Value> origin = opts->Get(originKey);
+  v8::Local<v8::Value> holes = opts->Get(holesKey);
+  if (!(seed->IsNumber() && origin->IsArray() && holes->IsInt32Array())) {
+    isolate->ThrowException(v8::Exception::TypeError(
+        v8::String::NewFromUtf8(isolate, "Invalid options")));
+    return;
+  }
+
+  v8::Local<v8::Array> originValue = origin.As<v8::Array>();
+  if (originValue->Length() != 3) {
+    isolate->ThrowException(v8::Exception::TypeError(
+        v8::String::NewFromUtf8(isolate, "Invalid origin array")));
+    return;
+  }
+
+  v8::Local<v8::Number> seedValue = seed.As<v8::Number>();
+  v8::Local<v8::Int32Array> holesValue = holes.As<v8::Int32Array>();
+
+  v8::Local<v8::Value> result = DoMarchCubes(
+    isolate,
+    seedValue->Uint32Value(),
+    originValue,
+    holesValue,
+    elevationNoiseFrequency,
+    elevationNoiseOctaves,
+    0,
+    1,
+    2.25, // lengthPow
+    800 // etherFactor
+  );
+
+  args.GetReturnValue().Set(result);
 }
 Biome _getBiome(float elevation, float moisture) {
   /* if (coast) {
@@ -323,12 +363,12 @@ Biome _getBiome(float elevation, float moisture) {
     return Biome::LAKE;
   } else if (lava > 2) {
     return Biome::MAGMA;
-  } else */if (elevation > (RADIUS * 0.3)) {
+  } else */if (elevation > (RADIUS * 0.5)) {
     if (moisture > 0.50) { return Biome::SNOW; }
     else if (moisture > 0.33) { return Biome::TUNDRA; }
     else if (moisture > 0.16) { return Biome::BARE; }
     else { return Biome::SCORCHED; }
-  } else if (elevation > (RADIUS * 0.2)) {
+  } else if (elevation > (RADIUS * 0.4)) {
     if (moisture > 0.66) { return Biome::TAIGA; }
     else if (moisture > 0.33) { return Biome::SHRUBLAND; }
     else { return Biome::TEMPERATE_DESERT; }
@@ -353,20 +393,83 @@ void MarchCubesPlanet(const v8::FunctionCallbackInfo<v8::Value>& args) {
   v8::Isolate* isolate = args.GetIsolate();
   auto seedKey = v8::String::NewFromUtf8(isolate, "seed");
   auto originKey = v8::String::NewFromUtf8(isolate, "origin");
+  auto holesKey = v8::String::NewFromUtf8(isolate, "holes");
+  auto landKey = v8::String::NewFromUtf8(isolate, "land");
+  auto waterKey = v8::String::NewFromUtf8(isolate, "water");
   auto positionsKey = v8::String::NewFromUtf8(isolate, "positions");
   auto colorsKey = v8::String::NewFromUtf8(isolate, "colors");
 
-  v8::Local<v8::Object> marchingCubes = DoMarchCubes(args).As<v8::Object>();
-  if (!marchingCubes->IsNull()) {
+  // Check the number of arguments passed.
+  if (args.Length() < 1) {
+    // Throw an Error that is passed back to JavaScript
+    isolate->ThrowException(v8::Exception::TypeError(
+        v8::String::NewFromUtf8(isolate, "Wrong number of arguments")));
+    return;
+  }
+  // Check the argument types
+  if (!args[0]->IsObject()) {
+    isolate->ThrowException(v8::Exception::TypeError(
+        v8::String::NewFromUtf8(isolate, "Wrong arguments")));
+    return;
+  }
+
+  v8::Local<v8::Object> opts = args[0]->ToObject();
+  v8::Local<v8::Value> seed = opts->Get(seedKey);
+  v8::Local<v8::Value> origin = opts->Get(originKey);
+  v8::Local<v8::Value> holes = opts->Get(holesKey);
+  if (!(seed->IsNumber() && origin->IsArray() && holes->IsInt32Array())) {
+    isolate->ThrowException(v8::Exception::TypeError(
+        v8::String::NewFromUtf8(isolate, "Invalid options")));
+    return;
+  }
+
+  v8::Local<v8::Array> originValue = origin.As<v8::Array>();
+  if (originValue->Length() != 3) {
+    isolate->ThrowException(v8::Exception::TypeError(
+        v8::String::NewFromUtf8(isolate, "Invalid origin array")));
+    return;
+  }
+
+  v8::Local<v8::Number> seedValue = seed.As<v8::Number>();
+  v8::Local<v8::Int32Array> holesValue = holes.As<v8::Int32Array>();
+
+  v8::Local<v8::Object> land = DoMarchCubes(
+    isolate,
+    seedValue->Uint32Value() + 0,
+    originValue,
+    holesValue,
+    elevationNoiseFrequency,
+    elevationNoiseOctaves,
+    0,
+    1,
+    2.25, // lengthPow
+    2000 // etherFactor
+  ).As<v8::Object>();
+
+  std::default_random_engine generator(seedValue->Uint32Value() + 1);
+  std::uniform_real_distribution<float> distribution(0.0f, 1.0f);
+  const float moistureFactor = 0.2 + 0.8 * distribution(generator);
+  v8::Local<v8::Object> water = DoMarchCubes(
+    isolate,
+    seedValue->Uint32Value() + 1,
+    originValue,
+    holesValue,
+    moistureNoiseFrequency,
+    moistureNoiseOctaves,
+    4000 * moistureFactor,
+    0.2 * moistureFactor,
+    2.25, // lengthPow
+    2000 // etherFactor
+  ).As<v8::Object>();
+  if (!land->IsNull() && !water->IsNull()) {
     v8::Local<v8::Object> opts = args[0]->ToObject();
     v8::Local<v8::Array> originValue = opts->Get(originKey).As<v8::Array>();
-    v8::Local<v8::Number> seed = marchingCubes->Get(seedKey).As<v8::Number>();
+    v8::Local<v8::Number> seed = opts->Get(seedKey).As<v8::Number>();
 
-    siv::PerlinNoise moistureNoise(seed->Uint32Value());
-    const float moistureNoiseFrequency = 0.04;
-    const unsigned int moistureNoiseOctaves = 6;
+    // begin add land colors
+    noise.reseed(seedValue->Uint32Value() + 1);
 
-    v8::Local<v8::Float32Array> positions = marchingCubes->Get(positionsKey).As<v8::Float32Array>();
+    v8::Local<v8::Float32Array> positions = land->Get(positionsKey).As<v8::Float32Array>();
     unsigned int numPositions = positions->Length();
     unsigned int numTriangles = numPositions / 3;
     v8::Local<v8::Float32Array> colors = v8::Float32Array::New(v8::ArrayBuffer::New(isolate, numPositions * 4), 0, numPositions);
@@ -404,7 +507,7 @@ void MarchCubesPlanet(const v8::FunctionCallbackInfo<v8::Value>& args) {
         center.z + (originVector.z * SIZE)
       };
       float elevation = std::sqrt(absoluteVector.x * absoluteVector.x + absoluteVector.y * absoluteVector.y + absoluteVector.z * absoluteVector.z);
-      float moisture = std::abs(moistureNoise.octaveNoise(
+      float moisture = std::abs(noise.octaveNoise(
         center.x * moistureNoiseFrequency,
         center.y * moistureNoiseFrequency,
         center.z * moistureNoiseFrequency,
@@ -421,11 +524,17 @@ void MarchCubesPlanet(const v8::FunctionCallbackInfo<v8::Value>& args) {
         colors->Set(positionBaseIndex + 2, v8::Number::New(isolate, b));
       }
     }
+    land->Set(colorsKey, colors);
+    // end add land colors
 
-    marchingCubes->Set(colorsKey, colors);
+    // construct result
+    v8::Local<v8::Object> result = v8::Object::New(isolate);
+    result->Set(landKey, land);
+    result->Set(waterKey, water);
 
-    args.GetReturnValue().Set(marchingCubes);
+    args.GetReturnValue().Set(result);
   } else {
+
     args.GetReturnValue().Set(v8::Null(isolate));
   }
 }
