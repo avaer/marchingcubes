@@ -291,8 +291,8 @@ v8::Local<v8::Value> DoMarchCubes(
   }
 
   v8::Local<v8::Object> result = v8::Object::New(isolate);
-  result->Set(positionsKey, positions);
-  result->Set(normalsKey, normals);
+  result->Set(positionsKey, v8::Float32Array::New(positionsBuffer, 0, index * 3 * 3));
+  result->Set(normalsKey, v8::Float32Array::New(normalsBuffer, 0, index * 3 * 3));
 
   return scope.Escape(result);
 }
