@@ -44,9 +44,9 @@ MarchingCubes::MarchingCubes( const int size_x /*= -1*/, const int size_y /*= -1
   _size_y(size_y),
   _size_z(size_z),
   _data(size_x * size_y * size_z),
-  _x_verts(size_x * size_y * size_z),
-  _y_verts(size_x * size_y * size_z),
-  _z_verts(size_x * size_y * size_z)
+  _x_verts(size_x * size_y * size_z, -1),
+  _y_verts(size_x * size_y * size_z, -1),
+  _z_verts(size_x * size_y * size_z, -1)
 {}
 //_____________________________________________________________________________
 
