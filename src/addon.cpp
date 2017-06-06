@@ -128,11 +128,10 @@ float _getValue(
   return value;
 }
 
-v8::Local<v8::Value> DoMarchCubes(
+v8::Local<v8::Value> DoGenMarchCubes(
   v8::Isolate* isolate,
   unsigned int seedNumber,
   v8::Local<v8::Array> originValue,
-  v8::Local<v8::Int32Array> holesValue,
   const float noiseFrequency,
   const unsigned int noiseOctaves,
   const float minValue,
@@ -144,21 +143,18 @@ v8::Local<v8::Value> DoMarchCubes(
 
   auto positionsKey = v8::String::NewFromUtf8(isolate, "positions");
   auto normalsKey = v8::String::NewFromUtf8(isolate, "normals");
+  auto etherKey = v8::String::NewFromUtf8(isolate, "ether");
 
-  // generate heightmap
   IntVector3 originVector{
     originValue->Get(0)->Int32Value(),
     originValue->Get(1)->Int32Value(),
     originValue->Get(2)->Int32Value()
   };
 
-  noise.reseed(seedNumber);
-
   // begin mc
   // Init data
+  noise.reseed(seedNumber);
   MarchingCubes mc(SIZE_BUFFERED, SIZE_BUFFERED, SIZE_BUFFERED);
-  // mc.set_resolution();
-  // mc.init_all();
 
   // Fills data structure
   for (unsigned int i = 0; i < SIZE_BUFFERED; i++) {
@@ -166,9 +162,9 @@ v8::Local<v8::Value> DoMarchCubes(
       for (unsigned int k = 0; k < SIZE_BUFFERED; k++) {
         float v = _getValue(
           Vector3{
-            i,
-            j,
-            k
+            (float)i,
+            (float)j,
+            (float)k
           },
           originVector,
           noiseFrequency,
@@ -178,6 +174,242 @@ v8::Local<v8::Value> DoMarchCubes(
           lengthPow,
           etherFactor
         );
+        mc.set_data(v, i, j, k);
+      }
+    }
+  }
+
+  mc.run();
+  // end mc
+
+  // construct result
+  unsigned int numTrigs = mc.ntrigs();
+  unsigned int numVerts = numTrigs * 3;
+  unsigned int numPositions = numVerts * 3;
+  unsigned int numNormals = numVerts * 3;
+  v8::Local<v8::ArrayBuffer> positionsBuffer = v8::ArrayBuffer::New(isolate, numPositions * 4);
+  v8::Local<v8::Float32Array> positions = v8::Float32Array::New(positionsBuffer, 0, numPositions);
+  v8::Local<v8::ArrayBuffer> normalsBuffer = v8::ArrayBuffer::New(isolate, numNormals * 4);
+  v8::Local<v8::Float32Array> normals = v8::Float32Array::New(normalsBuffer, 0, numNormals);
+
+  auto triangles = mc.triangles();
+  auto vertices = mc.vertices();
+  unsigned int positionIndex = 0;
+  for (unsigned int i = 0; i < numTrigs; i++) {
+    const Triangle &triangle = triangles[i];
+    const Vertex &a = vertices[triangle.v1];
+    const Vertex &b = vertices[triangle.v2];
+    const Vertex &c = vertices[triangle.v3];
+
+    const Vertex da{
+      a.x - BUFFER,
+      a.y - BUFFER,
+      a.z - BUFFER
+    };
+    const Vertex db{
+      b.x - BUFFER,
+      b.y - BUFFER,
+      b.z - BUFFER
+    };
+    const Vertex dc{
+      c.x - BUFFER,
+      c.y - BUFFER,
+      c.z - BUFFER
+    };
+    if (
+        da.x >= 0 && da.x <= SIZE && da.y >= 0 && da.y <= SIZE && da.z >= 0 && da.z <= SIZE &&
+        db.x >= 0 && db.x <= SIZE && db.y >= 0 && db.y <= SIZE && db.z >= 0 && db.z <= SIZE &&
+        dc.x >= 0 && dc.x <= SIZE && dc.y >= 0 && dc.y <= SIZE && dc.z >= 0 && dc.z <= SIZE
+    ) {
+      unsigned int baseIndex = positionIndex * 3 * 3;
+      positions->Set(baseIndex + 0, v8::Number::New(isolate, a.x - (SIZE_BUFFERED / 2)));
+      positions->Set(baseIndex + 1, v8::Number::New(isolate, a.y - (SIZE_BUFFERED / 2)));
+      positions->Set(baseIndex + 2, v8::Number::New(isolate, a.z - (SIZE_BUFFERED / 2)));
+      positions->Set(baseIndex + 3, v8::Number::New(isolate, b.x - (SIZE_BUFFERED / 2)));
+      positions->Set(baseIndex + 4, v8::Number::New(isolate, b.y - (SIZE_BUFFERED / 2)));
+      positions->Set(baseIndex + 5, v8::Number::New(isolate, b.z - (SIZE_BUFFERED / 2)));
+      positions->Set(baseIndex + 6, v8::Number::New(isolate, c.x - (SIZE_BUFFERED / 2)));
+      positions->Set(baseIndex + 7, v8::Number::New(isolate, c.y - (SIZE_BUFFERED / 2)));
+      positions->Set(baseIndex + 8, v8::Number::New(isolate, c.z - (SIZE_BUFFERED / 2)));
+
+      normals->Set(baseIndex + 0, v8::Number::New(isolate, a.nx));
+      normals->Set(baseIndex + 1, v8::Number::New(isolate, a.ny));
+      normals->Set(baseIndex + 2, v8::Number::New(isolate, a.nz));
+      normals->Set(baseIndex + 3, v8::Number::New(isolate, b.nx));
+      normals->Set(baseIndex + 4, v8::Number::New(isolate, b.ny));
+      normals->Set(baseIndex + 5, v8::Number::New(isolate, b.nz));
+      normals->Set(baseIndex + 6, v8::Number::New(isolate, c.nx));
+      normals->Set(baseIndex + 7, v8::Number::New(isolate, c.ny));
+      normals->Set(baseIndex + 8, v8::Number::New(isolate, c.nz));
+
+      positionIndex++;
+    }
+  }
+
+  const unsigned int numEthers = SIZE_BUFFERED * SIZE_BUFFERED * SIZE_BUFFERED;
+  v8::Local<v8::ArrayBuffer> ethersBuffer = v8::ArrayBuffer::New(isolate, numEthers * 4);
+  v8::Local<v8::Float32Array> ethers = v8::Float32Array::New(ethersBuffer, 0, numEthers);
+  for (int i = 0; i < SIZE_BUFFERED; i++) {
+    for (int j = 0; j < SIZE_BUFFERED; j++) {
+      for (int k = 0; k < SIZE_BUFFERED; k++) {
+        const unsigned int etherIndex = i + (j * SIZE_BUFFERED) + (k * SIZE_BUFFERED * SIZE_BUFFERED);
+        const float v = mc.get_data(ivec3(i, j, k));
+        ethers->Set(etherIndex, v8::Number::New(isolate, v));
+      }
+    }
+  }
+
+  v8::Local<v8::Object> result = v8::Object::New(isolate);
+  result->Set(positionsKey, v8::Float32Array::New(positionsBuffer, 0, positionIndex * 3 * 3));
+  result->Set(normalsKey, v8::Float32Array::New(normalsBuffer, 0, positionIndex * 3 * 3));
+  result->Set(etherKey, ethers);
+
+  return scope.Escape(result);
+}
+
+v8::Local<v8::Value> DoReMarchCubes(
+  v8::Isolate* isolate,
+  v8::Local<v8::Float32Array> etherValue
+) {
+  v8::EscapableHandleScope scope(isolate);
+
+  auto positionsKey = v8::String::NewFromUtf8(isolate, "positions");
+  auto normalsKey = v8::String::NewFromUtf8(isolate, "normals");
+  auto etherKey = v8::String::NewFromUtf8(isolate, "ether");
+
+  // begin mc
+  // Init data
+  MarchingCubes mc(SIZE_BUFFERED, SIZE_BUFFERED, SIZE_BUFFERED);
+
+  // Fills data structure
+  for (unsigned int i = 0; i < SIZE_BUFFERED; i++) {
+    for (unsigned int j = 0; j < SIZE_BUFFERED; j++) {
+      for (unsigned int k = 0; k < SIZE_BUFFERED; k++) {
+        float v = (float)etherValue->Get(i + (j * SIZE_BUFFERED) + (k * SIZE_BUFFERED * SIZE_BUFFERED))->NumberValue();
+        mc.set_data(v, i, j, k);
+      }
+    }
+  }
+
+  mc.run();
+  // end mc
+
+  // construct result
+  unsigned int numTrigs = mc.ntrigs();
+  unsigned int numVerts = numTrigs * 3;
+  unsigned int numPositions = numVerts * 3;
+  unsigned int numNormals = numVerts * 3;
+  v8::Local<v8::ArrayBuffer> positionsBuffer = v8::ArrayBuffer::New(isolate, numPositions * 4);
+  v8::Local<v8::Float32Array> positions = v8::Float32Array::New(positionsBuffer, 0, numPositions);
+  v8::Local<v8::ArrayBuffer> normalsBuffer = v8::ArrayBuffer::New(isolate, numNormals * 4);
+  v8::Local<v8::Float32Array> normals = v8::Float32Array::New(normalsBuffer, 0, numNormals);
+
+  auto triangles = mc.triangles();
+  auto vertices = mc.vertices();
+  unsigned int positionIndex = 0;
+  for (unsigned int i = 0; i < numTrigs; i++) {
+    const Triangle &triangle = triangles[i];
+    const Vertex &a = vertices[triangle.v1];
+    const Vertex &b = vertices[triangle.v2];
+    const Vertex &c = vertices[triangle.v3];
+
+    const Vertex da{
+      a.x - BUFFER,
+      a.y - BUFFER,
+      a.z - BUFFER
+    };
+    const Vertex db{
+      b.x - BUFFER,
+      b.y - BUFFER,
+      b.z - BUFFER
+    };
+    const Vertex dc{
+      c.x - BUFFER,
+      c.y - BUFFER,
+      c.z - BUFFER
+    };
+    if (
+        da.x >= 0 && da.x <= SIZE && da.y >= 0 && da.y <= SIZE && da.z >= 0 && da.z <= SIZE &&
+        db.x >= 0 && db.x <= SIZE && db.y >= 0 && db.y <= SIZE && db.z >= 0 && db.z <= SIZE &&
+        dc.x >= 0 && dc.x <= SIZE && dc.y >= 0 && dc.y <= SIZE && dc.z >= 0 && dc.z <= SIZE
+    ) {
+      unsigned int baseIndex = positionIndex * 3 * 3;
+      positions->Set(baseIndex + 0, v8::Number::New(isolate, a.x - (SIZE_BUFFERED / 2)));
+      positions->Set(baseIndex + 1, v8::Number::New(isolate, a.y - (SIZE_BUFFERED / 2)));
+      positions->Set(baseIndex + 2, v8::Number::New(isolate, a.z - (SIZE_BUFFERED / 2)));
+      positions->Set(baseIndex + 3, v8::Number::New(isolate, b.x - (SIZE_BUFFERED / 2)));
+      positions->Set(baseIndex + 4, v8::Number::New(isolate, b.y - (SIZE_BUFFERED / 2)));
+      positions->Set(baseIndex + 5, v8::Number::New(isolate, b.z - (SIZE_BUFFERED / 2)));
+      positions->Set(baseIndex + 6, v8::Number::New(isolate, c.x - (SIZE_BUFFERED / 2)));
+      positions->Set(baseIndex + 7, v8::Number::New(isolate, c.y - (SIZE_BUFFERED / 2)));
+      positions->Set(baseIndex + 8, v8::Number::New(isolate, c.z - (SIZE_BUFFERED / 2)));
+
+      normals->Set(baseIndex + 0, v8::Number::New(isolate, a.nx));
+      normals->Set(baseIndex + 1, v8::Number::New(isolate, a.ny));
+      normals->Set(baseIndex + 2, v8::Number::New(isolate, a.nz));
+      normals->Set(baseIndex + 3, v8::Number::New(isolate, b.nx));
+      normals->Set(baseIndex + 4, v8::Number::New(isolate, b.ny));
+      normals->Set(baseIndex + 5, v8::Number::New(isolate, b.nz));
+      normals->Set(baseIndex + 6, v8::Number::New(isolate, c.nx));
+      normals->Set(baseIndex + 7, v8::Number::New(isolate, c.ny));
+      normals->Set(baseIndex + 8, v8::Number::New(isolate, c.nz));
+
+      positionIndex++;
+    }
+  }
+
+  const unsigned int numEthers = SIZE_BUFFERED * SIZE_BUFFERED * SIZE_BUFFERED;
+  v8::Local<v8::ArrayBuffer> ethersBuffer = v8::ArrayBuffer::New(isolate, numEthers * 4);
+  v8::Local<v8::Float32Array> ethers = v8::Float32Array::New(ethersBuffer, 0, numEthers);
+  unsigned int etherIndex = 0;
+  for (unsigned int n = 0; n < numEthers; n++) {
+    for (int i = 0; i < SIZE_BUFFERED; i++) {
+      for (int j = 0; j < SIZE_BUFFERED; j++) {
+        for (int k = 0; k < SIZE_BUFFERED; k++) {
+          float v = mc.get_data(ivec3(i, j, k));
+          ethers->Set(etherIndex, v8::Number::New(isolate, v));
+          etherIndex++;
+        }
+      }
+    }
+  }
+
+  v8::Local<v8::Object> result = v8::Object::New(isolate);
+  result->Set(positionsKey, v8::Float32Array::New(positionsBuffer, 0, positionIndex * 3 * 3));
+  result->Set(normalsKey, v8::Float32Array::New(normalsBuffer, 0, positionIndex * 3 * 3));
+  result->Set(etherKey, ethers);
+
+  return scope.Escape(result);
+}
+
+v8::Local<v8::Value> DoHolesMarchCubes(
+  v8::Isolate* isolate,
+  v8::Local<v8::Array> originValue,
+  v8::Local<v8::Float32Array> etherValue,
+  v8::Local<v8::Int32Array> holesValue
+) {
+  v8::EscapableHandleScope scope(isolate);
+
+  auto positionsKey = v8::String::NewFromUtf8(isolate, "positions");
+  auto normalsKey = v8::String::NewFromUtf8(isolate, "normals");
+  auto etherKey = v8::String::NewFromUtf8(isolate, "ether");
+
+  // generate heightmap
+  IntVector3 originVector{
+    originValue->Get(0)->Int32Value(),
+    originValue->Get(1)->Int32Value(),
+    originValue->Get(2)->Int32Value()
+  };
+
+  // begin mc
+  // Init data
+  MarchingCubes mc(SIZE_BUFFERED, SIZE_BUFFERED, SIZE_BUFFERED);
+
+  // Fills data structure
+  for (unsigned int i = 0; i < SIZE_BUFFERED; i++) {
+    for (unsigned int j = 0; j < SIZE_BUFFERED; j++) {
+      for (unsigned int k = 0; k < SIZE_BUFFERED; k++) {
+        float v = (float)etherValue->Get(i + (j * SIZE_BUFFERED) + (k * SIZE_BUFFERED * SIZE_BUFFERED))->NumberValue();
         mc.set_data(v, i, j, k);
       }
     }
@@ -222,7 +454,6 @@ v8::Local<v8::Value> DoMarchCubes(
     }
   }
 
-  // mc.set_method(true);
   mc.run();
   // end mc
 
@@ -290,70 +521,30 @@ v8::Local<v8::Value> DoMarchCubes(
     }
   }
 
+  const unsigned int numEthers = SIZE_BUFFERED * SIZE_BUFFERED * SIZE_BUFFERED;
+  v8::Local<v8::ArrayBuffer> ethersBuffer = v8::ArrayBuffer::New(isolate, numEthers * 4);
+  v8::Local<v8::Float32Array> ethers = v8::Float32Array::New(ethersBuffer, 0, numEthers);
+  unsigned int etherIndex = 0;
+  for (unsigned int n = 0; n < numEthers; n++) {
+    for (int i = 0; i < SIZE_BUFFERED; i++) {
+      for (int j = 0; j < SIZE_BUFFERED; j++) {
+        for (int k = 0; k < SIZE_BUFFERED; k++) {
+          float v = mc.get_data(ivec3(i, j, k));
+          ethers->Set(etherIndex, v8::Number::New(isolate, v));
+          etherIndex++;
+        }
+      }
+    }
+  }
+
   v8::Local<v8::Object> result = v8::Object::New(isolate);
   result->Set(positionsKey, v8::Float32Array::New(positionsBuffer, 0, index * 3 * 3));
   result->Set(normalsKey, v8::Float32Array::New(normalsBuffer, 0, index * 3 * 3));
+  result->Set(etherKey, ethers);
 
   return scope.Escape(result);
 }
 
-void MarchCubes(const v8::FunctionCallbackInfo<v8::Value>& args) {
-  v8::Isolate* isolate = args.GetIsolate();
-  v8::EscapableHandleScope scope(isolate);
-
-  auto seedKey = v8::String::NewFromUtf8(isolate, "seed");
-  auto originKey = v8::String::NewFromUtf8(isolate, "origin");
-  auto holesKey = v8::String::NewFromUtf8(isolate, "holes");
-
-  // Check the number of arguments passed.
-  if (args.Length() < 1) {
-    // Throw an Error that is passed back to JavaScript
-    isolate->ThrowException(v8::Exception::TypeError(
-        v8::String::NewFromUtf8(isolate, "Wrong number of arguments")));
-    return;
-  }
-  // Check the argument types
-  if (!args[0]->IsObject()) {
-    isolate->ThrowException(v8::Exception::TypeError(
-        v8::String::NewFromUtf8(isolate, "Wrong arguments")));
-    return;
-  }
-
-  v8::Local<v8::Object> opts = args[0]->ToObject();
-  v8::Local<v8::Value> seed = opts->Get(seedKey);
-  v8::Local<v8::Value> origin = opts->Get(originKey);
-  v8::Local<v8::Value> holes = opts->Get(holesKey);
-  if (!(seed->IsNumber() && origin->IsArray() && holes->IsInt32Array())) {
-    isolate->ThrowException(v8::Exception::TypeError(
-        v8::String::NewFromUtf8(isolate, "Invalid options")));
-    return;
-  }
-
-  v8::Local<v8::Array> originValue = origin.As<v8::Array>();
-  if (originValue->Length() != 3) {
-    isolate->ThrowException(v8::Exception::TypeError(
-        v8::String::NewFromUtf8(isolate, "Invalid origin array")));
-    return;
-  }
-
-  v8::Local<v8::Number> seedValue = seed.As<v8::Number>();
-  v8::Local<v8::Int32Array> holesValue = holes.As<v8::Int32Array>();
-
-  v8::Local<v8::Value> result = DoMarchCubes(
-    isolate,
-    seedValue->Uint32Value(),
-    originValue,
-    holesValue,
-    elevationNoiseFrequency,
-    elevationNoiseOctaves,
-    0,
-    1,
-    2.25, // lengthPow
-    800 // etherFactor
-  );
-
-  args.GetReturnValue().Set(scope.Escape(result));
-}
 Biome _getBiome(float elevation, float moisture) {
   /* if (coast) {
     return Biome::BEACH;
@@ -391,7 +582,7 @@ unsigned int _getBiomeColor(float elevation, float moisture) {
   auto biomeColor = (unsigned int)biome;
   return biomeColor;
 }
-void MarchCubesPlanet(const v8::FunctionCallbackInfo<v8::Value>& args) {
+void GenMarchCubes(const v8::FunctionCallbackInfo<v8::Value>& args) {
   v8::Isolate* isolate = args.GetIsolate();
   v8::EscapableHandleScope scope(isolate);
 
@@ -400,8 +591,10 @@ void MarchCubesPlanet(const v8::FunctionCallbackInfo<v8::Value>& args) {
   auto holesKey = v8::String::NewFromUtf8(isolate, "holes");
   auto landKey = v8::String::NewFromUtf8(isolate, "land");
   auto waterKey = v8::String::NewFromUtf8(isolate, "water");
+  auto metadataKey = v8::String::NewFromUtf8(isolate, "metadata");
   auto positionsKey = v8::String::NewFromUtf8(isolate, "positions");
   auto colorsKey = v8::String::NewFromUtf8(isolate, "colors");
+  auto moistureEtherKey = v8::String::NewFromUtf8(isolate, "moistureEther");
 
   // Check the number of arguments passed.
   if (args.Length() < 1) {
@@ -420,8 +613,7 @@ void MarchCubesPlanet(const v8::FunctionCallbackInfo<v8::Value>& args) {
   v8::Local<v8::Object> opts = args[0]->ToObject();
   v8::Local<v8::Value> seed = opts->Get(seedKey);
   v8::Local<v8::Value> origin = opts->Get(originKey);
-  v8::Local<v8::Value> holes = opts->Get(holesKey);
-  if (!(seed->IsNumber() && origin->IsArray() && holes->IsInt32Array())) {
+  if (!(seed->IsNumber() && origin->IsArray())) {
     isolate->ThrowException(v8::Exception::TypeError(
         v8::String::NewFromUtf8(isolate, "Invalid options")));
     return;
@@ -430,18 +622,23 @@ void MarchCubesPlanet(const v8::FunctionCallbackInfo<v8::Value>& args) {
   v8::Local<v8::Array> originValue = origin.As<v8::Array>();
   if (originValue->Length() != 3) {
     isolate->ThrowException(v8::Exception::TypeError(
-        v8::String::NewFromUtf8(isolate, "Invalid origin array")));
+        v8::String::NewFromUtf8(isolate, "Invalid options")));
     return;
   }
 
+  IntVector3 originVector{
+    originValue->Get(0)->Int32Value(),
+    originValue->Get(1)->Int32Value(),
+    originValue->Get(2)->Int32Value()
+  };
   v8::Local<v8::Number> seedValue = seed.As<v8::Number>();
-  v8::Local<v8::Int32Array> holesValue = holes.As<v8::Int32Array>();
+  unsigned int landSeedNumber = seedValue->Uint32Value() + 0;
+  unsigned int waterSeedNumber = seedValue->Uint32Value() + 1;
 
-  v8::Local<v8::Object> land = DoMarchCubes(
+  v8::Local<v8::Object> landResult = DoGenMarchCubes(
     isolate,
-    seedValue->Uint32Value() + 0,
+    landSeedNumber,
     originValue,
-    holesValue,
     elevationNoiseFrequency,
     elevationNoiseOctaves,
     0,
@@ -452,100 +649,420 @@ void MarchCubesPlanet(const v8::FunctionCallbackInfo<v8::Value>& args) {
 
   std::default_random_engine generator(seedValue->Uint32Value() + 1);
   std::uniform_real_distribution<float> distribution(0.0f, 1.0f);
-  const float moistureFactor = 0.2 + 0.8 * distribution(generator);
-  v8::Local<v8::Object> water = DoMarchCubes(
+  const float moistureMultiplier = 0.2 + 0.8 * distribution(generator);
+  const float moistureMinValue = 4000 * moistureMultiplier;
+  const float moistureFactor = 0.2 * moistureMultiplier;
+  const float mosistureLengthPow = 2.25;
+  const float moistureEtherFactor = 2000;
+  v8::Local<v8::Object> waterResult = DoGenMarchCubes(
     isolate,
-    seedValue->Uint32Value() + 1,
+    waterSeedNumber,
     originValue,
-    holesValue,
     moistureNoiseFrequency,
     moistureNoiseOctaves,
-    4000 * moistureFactor,
-    0.2 * moistureFactor,
-    2.25, // lengthPow
-    2000 // etherFactor
+    moistureMinValue,
+    moistureFactor,
+    mosistureLengthPow,
+    moistureEtherFactor
   ).As<v8::Object>();
-  if (!land->IsNull() && !water->IsNull()) {
-    v8::Local<v8::Object> opts = args[0]->ToObject();
-    v8::Local<v8::Array> originValue = opts->Get(originKey).As<v8::Array>();
-    v8::Local<v8::Number> seed = opts->Get(seedKey).As<v8::Number>();
 
-    // begin add land colors
-    noise.reseed(seedValue->Uint32Value() + 1);
-
-    v8::Local<v8::Float32Array> positions = land->Get(positionsKey).As<v8::Float32Array>();
-    unsigned int numPositions = positions->Length();
-    unsigned int numTriangles = numPositions / 3;
-    v8::Local<v8::ArrayBuffer> colorsBuffer = v8::ArrayBuffer::New(isolate, numPositions * 4);
-    v8::Local<v8::Float32Array> colors = v8::Float32Array::New(colorsBuffer, 0, numPositions);
-    for (unsigned int i = 0; i < numTriangles; i++) {
-      unsigned int triangleBaseIndex = i * 3 * 3;
-
-      Vector3 pa{
-        (float)positions->Get(triangleBaseIndex + 0)->NumberValue(),
-        (float)positions->Get(triangleBaseIndex + 1)->NumberValue(),
-        (float)positions->Get(triangleBaseIndex + 2)->NumberValue()
-      };
-      Vector3 pb{
-        (float)positions->Get(triangleBaseIndex + 3)->NumberValue(),
-        (float)positions->Get(triangleBaseIndex + 4)->NumberValue(),
-        (float)positions->Get(triangleBaseIndex + 5)->NumberValue()
-      };
-      Vector3 pc{
-        (float)positions->Get(triangleBaseIndex + 6)->NumberValue(),
-        (float)positions->Get(triangleBaseIndex + 7)->NumberValue(),
-        (float)positions->Get(triangleBaseIndex + 8)->NumberValue()
-      };
-      Vector3 center{
-        (pa.x + pb.x + pc.x) / 3,
-        (pa.y + pb.y + pc.y) / 3,
-        (pa.z + pb.z + pc.z) / 3
-      };
-      IntVector3 originVector{
-        originValue->Get(0)->Int32Value(),
-        originValue->Get(1)->Int32Value(),
-        originValue->Get(2)->Int32Value()
-      };
-      Vector3 absoluteVector{
-        center.x + (originVector.x * SIZE),
-        center.y + (originVector.y * SIZE),
-        center.z + (originVector.z * SIZE)
-      };
-      float elevation = std::sqrt(absoluteVector.x * absoluteVector.x + absoluteVector.y * absoluteVector.y + absoluteVector.z * absoluteVector.z);
-      float moisture = std::abs(noise.octaveNoise(
-        center.x * moistureNoiseFrequency,
-        center.y * moistureNoiseFrequency,
-        center.z * moistureNoiseFrequency,
-        moistureNoiseOctaves
-      )) * 10;
-      unsigned int c = _getBiomeColor(elevation, moisture);
-      float r = (float)((c >> (8 * 2)) & 0xFF) / 0xFF;
-      float g = (float)((c >> (8 * 1)) & 0xFF) / 0xFF;
-      float b = (float)((c >> (8 * 0)) & 0xFF) / 0xFF;
-      for (unsigned int j = 0; j < 3; j++) {
-        unsigned int positionBaseIndex = triangleBaseIndex + (j * 3);
-        colors->Set(positionBaseIndex + 0, v8::Number::New(isolate, r));
-        colors->Set(positionBaseIndex + 1, v8::Number::New(isolate, g));
-        colors->Set(positionBaseIndex + 2, v8::Number::New(isolate, b));
+  // begin latch moistures
+  noise.reseed(waterSeedNumber);
+  MarchingCubes mc(SIZE_BUFFERED, SIZE_BUFFERED, SIZE_BUFFERED);
+  for (unsigned int i = 0; i < SIZE_BUFFERED; i++) {
+    for (unsigned int j = 0; j < SIZE_BUFFERED; j++) {
+      for (unsigned int k = 0; k < SIZE_BUFFERED; k++) {
+        float v = _getValue(
+          Vector3{
+            (float)i,
+            (float)j,
+            (float)k
+          },
+          originVector,
+          moistureNoiseFrequency,
+          moistureNoiseOctaves,
+          moistureMinValue,
+          moistureFactor,
+          mosistureLengthPow,
+          moistureEtherFactor
+        );
+        mc.set_data(v, i, j, k);
       }
     }
-    land->Set(colorsKey, colors);
-    // end add land colors
-
-    // construct result
-    v8::Local<v8::Object> result = v8::Object::New(isolate);
-    result->Set(landKey, land);
-    result->Set(waterKey, water);
-
-    args.GetReturnValue().Set(scope.Escape(result));
-  } else {
-    args.GetReturnValue().Set(scope.Escape(v8::Null(isolate)));
   }
+
+  const unsigned int numMoistureEthers = SIZE_BUFFERED * SIZE_BUFFERED * SIZE_BUFFERED;
+  v8::Local<v8::ArrayBuffer> moistureEthersBuffer = v8::ArrayBuffer::New(isolate, numMoistureEthers * 4);
+  v8::Local<v8::Float32Array> moistureEthers = v8::Float32Array::New(moistureEthersBuffer, 0, numMoistureEthers);
+  for (int i = 0; i < SIZE_BUFFERED; i++) {
+    for (int j = 0; j < SIZE_BUFFERED; j++) {
+      for (int k = 0; k < SIZE_BUFFERED; k++) {
+        const unsigned int moistureEtherIndex = i + (j * SIZE_BUFFERED) + (k * SIZE_BUFFERED * SIZE_BUFFERED);
+        const float v = mc.get_data(ivec3(i, j, k));
+        moistureEthers->Set(moistureEtherIndex, v8::Number::New(isolate, v));
+      }
+    }
+  }
+
+  v8::Local<v8::Object> metadataResult = v8::Object::New(isolate);
+  metadataResult->Set(moistureEtherKey, moistureEthers);
+  // end latch moistures
+
+  // begin add land colors
+  v8::Local<v8::Float32Array> positions = landResult->Get(positionsKey).As<v8::Float32Array>();
+  unsigned int numPositions = positions->Length();
+  unsigned int numTriangles = numPositions / 3;
+  v8::Local<v8::ArrayBuffer> colorsBuffer = v8::ArrayBuffer::New(isolate, numPositions * 4);
+  v8::Local<v8::Float32Array> colors = v8::Float32Array::New(colorsBuffer, 0, numPositions);
+  for (unsigned int i = 0; i < numTriangles; i++) {
+    unsigned int triangleBaseIndex = i * 3 * 3;
+
+    Vector3 pa{
+      (float)positions->Get(triangleBaseIndex + 0)->NumberValue(),
+      (float)positions->Get(triangleBaseIndex + 1)->NumberValue(),
+      (float)positions->Get(triangleBaseIndex + 2)->NumberValue()
+    };
+    Vector3 pb{
+      (float)positions->Get(triangleBaseIndex + 3)->NumberValue(),
+      (float)positions->Get(triangleBaseIndex + 4)->NumberValue(),
+      (float)positions->Get(triangleBaseIndex + 5)->NumberValue()
+    };
+    Vector3 pc{
+      (float)positions->Get(triangleBaseIndex + 6)->NumberValue(),
+      (float)positions->Get(triangleBaseIndex + 7)->NumberValue(),
+      (float)positions->Get(triangleBaseIndex + 8)->NumberValue()
+    };
+    Vector3 center{
+      (pa.x + pb.x + pc.x) / 3,
+      (pa.y + pb.y + pc.y) / 3,
+      (pa.z + pb.z + pc.z) / 3
+    };
+    Vector3 absoluteVector{
+      center.x + (originVector.x * SIZE),
+      center.y + (originVector.y * SIZE),
+      center.z + (originVector.z * SIZE)
+    };
+    float elevation = std::sqrt(absoluteVector.x * absoluteVector.x + absoluteVector.y * absoluteVector.y + absoluteVector.z * absoluteVector.z);
+    float moisture = std::abs(
+      (float)moistureEthers->Get(
+        center.x +
+        (center.y * SIZE_BUFFERED) +
+        (center.z * SIZE_BUFFERED * SIZE_BUFFERED)
+      )->NumberValue()
+    ) * 10;
+    unsigned int c = _getBiomeColor(elevation, moisture);
+    float r = (float)((c >> (8 * 2)) & 0xFF) / 0xFF;
+    float g = (float)((c >> (8 * 1)) & 0xFF) / 0xFF;
+    float b = (float)((c >> (8 * 0)) & 0xFF) / 0xFF;
+    for (unsigned int j = 0; j < 3; j++) {
+      unsigned int positionBaseIndex = triangleBaseIndex + (j * 3);
+      colors->Set(positionBaseIndex + 0, v8::Number::New(isolate, r));
+      colors->Set(positionBaseIndex + 1, v8::Number::New(isolate, g));
+      colors->Set(positionBaseIndex + 2, v8::Number::New(isolate, b));
+    }
+  }
+  landResult->Set(colorsKey, colors);
+  // end add land colors
+
+  // construct result
+  v8::Local<v8::Object> result = v8::Object::New(isolate);
+  result->Set(landKey, landResult);
+  result->Set(waterKey, waterResult);
+  result->Set(metadataKey, metadataResult);
+
+  args.GetReturnValue().Set(scope.Escape(result));
+}
+void ReMarchCubes(const v8::FunctionCallbackInfo<v8::Value>& args) {
+  v8::Isolate* isolate = args.GetIsolate();
+  v8::EscapableHandleScope scope(isolate);
+
+  auto originKey = v8::String::NewFromUtf8(isolate, "origin");
+  auto landKey = v8::String::NewFromUtf8(isolate, "land");
+  auto waterKey = v8::String::NewFromUtf8(isolate, "water");
+  auto metadataKey = v8::String::NewFromUtf8(isolate, "metadata");
+  auto positionsKey = v8::String::NewFromUtf8(isolate, "positions");
+  auto colorsKey = v8::String::NewFromUtf8(isolate, "colors");
+  auto etherKey = v8::String::NewFromUtf8(isolate, "ether");
+  auto moistureEtherKey = v8::String::NewFromUtf8(isolate, "moistureEther");
+
+  // Check the number of arguments passed.
+  if (args.Length() < 1) {
+    // Throw an Error that is passed back to JavaScript
+    isolate->ThrowException(v8::Exception::TypeError(
+        v8::String::NewFromUtf8(isolate, "Wrong number of arguments")));
+    return;
+  }
+  // Check the argument types
+  if (!args[0]->IsObject()) {
+    isolate->ThrowException(v8::Exception::TypeError(
+        v8::String::NewFromUtf8(isolate, "Wrong arguments")));
+    return;
+  }
+
+  v8::Local<v8::Object> opts = args[0]->ToObject();
+  v8::Local<v8::Value> origin = opts->Get(originKey);
+  v8::Local<v8::Value> landOption = opts->Get(landKey);
+  v8::Local<v8::Value> waterOption = opts->Get(waterKey);
+  v8::Local<v8::Value> metadataOption = opts->Get(metadataKey);
+  if (!(origin->IsArray() && landOption->IsObject() && waterOption->IsObject() && metadataOption->IsObject())) {
+    isolate->ThrowException(v8::Exception::TypeError(
+        v8::String::NewFromUtf8(isolate, "Invalid options")));
+    return;
+  }
+
+  v8::Local<v8::Array> originValue = origin.As<v8::Array>();
+
+  v8::Local<v8::Object> landValue = landOption.As<v8::Object>();
+  v8::Local<v8::Value> landEther = landValue->Get(etherKey);
+
+  v8::Local<v8::Object> waterValue = waterOption.As<v8::Object>();
+  v8::Local<v8::Value> waterEther = waterValue->Get(etherKey);
+
+  v8::Local<v8::Object> metadataValue = metadataOption.As<v8::Object>();
+  v8::Local<v8::Value> moistureEther = metadataValue->Get(moistureEtherKey);
+
+  if (!(originValue->Length() == 3 && landEther->IsFloat32Array() && waterEther->IsFloat32Array() && moistureEther->IsFloat32Array())) {
+    isolate->ThrowException(v8::Exception::TypeError(
+        v8::String::NewFromUtf8(isolate, "Invalid options")));
+    return;
+  }
+
+  IntVector3 originVector{
+    originValue->Get(0)->Int32Value(),
+    originValue->Get(1)->Int32Value(),
+    originValue->Get(2)->Int32Value()
+  };
+  v8::Local<v8::Float32Array> landEtherValue = landEther.As<v8::Float32Array>();
+  v8::Local<v8::Float32Array> waterEtherValue = waterEther.As<v8::Float32Array>();
+  v8::Local<v8::Float32Array> moistureEtherValue = moistureEther.As<v8::Float32Array>();
+
+  v8::Local<v8::Object> landResult = DoReMarchCubes(
+    isolate,
+    landEtherValue
+  ).As<v8::Object>();
+
+  v8::Local<v8::Object> waterResult = DoReMarchCubes(
+    isolate,
+    waterEtherValue
+  ).As<v8::Object>();
+
+  // begin add land colors
+  v8::Local<v8::Float32Array> positions = landResult->Get(positionsKey).As<v8::Float32Array>();
+  unsigned int numPositions = positions->Length();
+  unsigned int numTriangles = numPositions / 3;
+  v8::Local<v8::ArrayBuffer> colorsBuffer = v8::ArrayBuffer::New(isolate, numPositions * 4);
+  v8::Local<v8::Float32Array> colors = v8::Float32Array::New(colorsBuffer, 0, numPositions);
+  for (unsigned int i = 0; i < numTriangles; i++) {
+    unsigned int triangleBaseIndex = i * 3 * 3;
+
+    Vector3 pa{
+      (float)positions->Get(triangleBaseIndex + 0)->NumberValue(),
+      (float)positions->Get(triangleBaseIndex + 1)->NumberValue(),
+      (float)positions->Get(triangleBaseIndex + 2)->NumberValue()
+    };
+    Vector3 pb{
+      (float)positions->Get(triangleBaseIndex + 3)->NumberValue(),
+      (float)positions->Get(triangleBaseIndex + 4)->NumberValue(),
+      (float)positions->Get(triangleBaseIndex + 5)->NumberValue()
+    };
+    Vector3 pc{
+      (float)positions->Get(triangleBaseIndex + 6)->NumberValue(),
+      (float)positions->Get(triangleBaseIndex + 7)->NumberValue(),
+      (float)positions->Get(triangleBaseIndex + 8)->NumberValue()
+    };
+    Vector3 center{
+      (pa.x + pb.x + pc.x) / 3,
+      (pa.y + pb.y + pc.y) / 3,
+      (pa.z + pb.z + pc.z) / 3
+    };
+    Vector3 absoluteVector{
+      center.x + (originVector.x * SIZE),
+      center.y + (originVector.y * SIZE),
+      center.z + (originVector.z * SIZE)
+    };
+    float elevation = std::sqrt(absoluteVector.x * absoluteVector.x + absoluteVector.y * absoluteVector.y + absoluteVector.z * absoluteVector.z);
+    float moisture = std::abs(
+      (float)moistureEtherValue->Get(
+        center.x +
+        (center.y * SIZE_BUFFERED) +
+        (center.z * SIZE_BUFFERED * SIZE_BUFFERED)
+      )->NumberValue()
+    ) * 10;
+    unsigned int c = _getBiomeColor(elevation, moisture);
+    float r = (float)((c >> (8 * 2)) & 0xFF) / 0xFF;
+    float g = (float)((c >> (8 * 1)) & 0xFF) / 0xFF;
+    float b = (float)((c >> (8 * 0)) & 0xFF) / 0xFF;
+    for (unsigned int j = 0; j < 3; j++) {
+      unsigned int positionBaseIndex = triangleBaseIndex + (j * 3);
+      colors->Set(positionBaseIndex + 0, v8::Number::New(isolate, r));
+      colors->Set(positionBaseIndex + 1, v8::Number::New(isolate, g));
+      colors->Set(positionBaseIndex + 2, v8::Number::New(isolate, b));
+    }
+  }
+  landResult->Set(colorsKey, colors);
+  // end add land colors
+
+  v8::Local<v8::Value> metadataResult = metadataOption;
+
+  // construct result
+  v8::Local<v8::Object> result = v8::Object::New(isolate);
+  result->Set(landKey, landResult);
+  result->Set(waterKey, waterResult);
+  result->Set(metadataKey, metadataResult);
+
+  args.GetReturnValue().Set(scope.Escape(result));
+}
+void HolesMarchCubes(const v8::FunctionCallbackInfo<v8::Value>& args) {
+  v8::Isolate* isolate = args.GetIsolate();
+  v8::EscapableHandleScope scope(isolate);
+
+  auto originKey = v8::String::NewFromUtf8(isolate, "origin");
+  auto holesKey = v8::String::NewFromUtf8(isolate, "holes");
+  auto landKey = v8::String::NewFromUtf8(isolate, "land");
+  auto waterKey = v8::String::NewFromUtf8(isolate, "water");
+  auto metadataKey = v8::String::NewFromUtf8(isolate, "metadata");
+  auto positionsKey = v8::String::NewFromUtf8(isolate, "positions");
+  auto colorsKey = v8::String::NewFromUtf8(isolate, "colors");
+  auto etherKey = v8::String::NewFromUtf8(isolate, "ether");
+  auto moistureEtherKey = v8::String::NewFromUtf8(isolate, "moistureEther");
+
+  // Check the number of arguments passed.
+  if (args.Length() < 1) {
+    // Throw an Error that is passed back to JavaScript
+    isolate->ThrowException(v8::Exception::TypeError(
+        v8::String::NewFromUtf8(isolate, "Wrong number of arguments")));
+    return;
+  }
+  // Check the argument types
+  if (!args[0]->IsObject()) {
+    isolate->ThrowException(v8::Exception::TypeError(
+        v8::String::NewFromUtf8(isolate, "Wrong arguments")));
+    return;
+  }
+
+  v8::Local<v8::Object> opts = args[0]->ToObject();
+  v8::Local<v8::Value> holes = opts->Get(holesKey);
+  v8::Local<v8::Value> landOption = opts->Get(landKey);
+  v8::Local<v8::Value> waterOption = opts->Get(waterKey);
+  v8::Local<v8::Value> metadataOption = opts->Get(metadataKey);
+  if (!(holes->IsInt32Array() && landOption->IsObject() && waterOption->IsObject() && metadataOption->IsObject())) {
+    isolate->ThrowException(v8::Exception::TypeError(
+        v8::String::NewFromUtf8(isolate, "Invalid options")));
+    return;
+  }
+
+  v8::Local<v8::Array> originValue = opts->Get(originKey).As<v8::Array>();
+
+  v8::Local<v8::Object> landValue = landOption.As<v8::Object>();
+  v8::Local<v8::Value> landEther = landValue->Get(etherKey);
+
+  v8::Local<v8::Object> waterValue = waterOption.As<v8::Object>();
+  v8::Local<v8::Value> waterEther = waterValue->Get(etherKey);
+
+  v8::Local<v8::Object> metadataValue = metadataOption.As<v8::Object>();
+  v8::Local<v8::Value> moistureEther = metadataValue->Get(moistureEtherKey);
+
+  if (!(originValue->Length() == 3 && landEther->IsFloat32Array() && waterEther->IsFloat32Array() && moistureEther->IsFloat32Array())) {
+    isolate->ThrowException(v8::Exception::TypeError(
+        v8::String::NewFromUtf8(isolate, "Invalid options")));
+    return;
+  }
+
+  IntVector3 originVector{
+    originValue->Get(0)->Int32Value(),
+    originValue->Get(1)->Int32Value(),
+    originValue->Get(2)->Int32Value()
+  };
+  v8::Local<v8::Int32Array> holesValue = holes.As<v8::Int32Array>();
+  v8::Local<v8::Float32Array> landEtherValue = landEther.As<v8::Float32Array>();
+  v8::Local<v8::Float32Array> waterEtherValue = waterEther.As<v8::Float32Array>();
+  v8::Local<v8::Float32Array> moistureEtherValue = moistureEther.As<v8::Float32Array>();
+
+  v8::Local<v8::Object> landResult = DoHolesMarchCubes(
+    isolate,
+    originValue,
+    landEtherValue,
+    holesValue
+  ).As<v8::Object>();
+
+  v8::Local<v8::Object> waterResult = DoHolesMarchCubes(
+    isolate,
+    originValue,
+    waterEtherValue,
+    holesValue
+  ).As<v8::Object>();
+
+  // begin add land colors
+  v8::Local<v8::Float32Array> positions = landResult->Get(positionsKey).As<v8::Float32Array>();
+  unsigned int numPositions = positions->Length();
+  unsigned int numTriangles = numPositions / 3;
+  v8::Local<v8::ArrayBuffer> colorsBuffer = v8::ArrayBuffer::New(isolate, numPositions * 4);
+  v8::Local<v8::Float32Array> colors = v8::Float32Array::New(colorsBuffer, 0, numPositions);
+  for (unsigned int i = 0; i < numTriangles; i++) {
+    unsigned int triangleBaseIndex = i * 3 * 3;
+
+    Vector3 pa{
+      (float)positions->Get(triangleBaseIndex + 0)->NumberValue(),
+      (float)positions->Get(triangleBaseIndex + 1)->NumberValue(),
+      (float)positions->Get(triangleBaseIndex + 2)->NumberValue()
+    };
+    Vector3 pb{
+      (float)positions->Get(triangleBaseIndex + 3)->NumberValue(),
+      (float)positions->Get(triangleBaseIndex + 4)->NumberValue(),
+      (float)positions->Get(triangleBaseIndex + 5)->NumberValue()
+    };
+    Vector3 pc{
+      (float)positions->Get(triangleBaseIndex + 6)->NumberValue(),
+      (float)positions->Get(triangleBaseIndex + 7)->NumberValue(),
+      (float)positions->Get(triangleBaseIndex + 8)->NumberValue()
+    };
+    Vector3 center{
+      (pa.x + pb.x + pc.x) / 3,
+      (pa.y + pb.y + pc.y) / 3,
+      (pa.z + pb.z + pc.z) / 3
+    };
+    Vector3 absoluteVector{
+      center.x + (originVector.x * SIZE),
+      center.y + (originVector.y * SIZE),
+      center.z + (originVector.z * SIZE)
+    };
+    float elevation = std::sqrt(absoluteVector.x * absoluteVector.x + absoluteVector.y * absoluteVector.y + absoluteVector.z * absoluteVector.z);
+    float moisture = std::abs(
+      (float)moistureEtherValue->Get(
+        center.x +
+        (center.y * SIZE_BUFFERED) +
+        (center.z * SIZE_BUFFERED * SIZE_BUFFERED)
+      )->NumberValue()
+    ) * 10;
+    unsigned int c = _getBiomeColor(elevation, moisture);
+    float r = (float)((c >> (8 * 2)) & 0xFF) / 0xFF;
+    float g = (float)((c >> (8 * 1)) & 0xFF) / 0xFF;
+    float b = (float)((c >> (8 * 0)) & 0xFF) / 0xFF;
+    for (unsigned int j = 0; j < 3; j++) {
+      unsigned int positionBaseIndex = triangleBaseIndex + (j * 3);
+      colors->Set(positionBaseIndex + 0, v8::Number::New(isolate, r));
+      colors->Set(positionBaseIndex + 1, v8::Number::New(isolate, g));
+      colors->Set(positionBaseIndex + 2, v8::Number::New(isolate, b));
+    }
+  }
+  landResult->Set(colorsKey, colors);
+  // end add land colors
+
+  v8::Local<v8::Value> metadataResult = metadataOption;
+
+  // construct result
+  v8::Local<v8::Object> result = v8::Object::New(isolate);
+  result->Set(landKey, landResult);
+  result->Set(waterKey, waterResult);
+  result->Set(metadataKey, metadataResult);
+
+  args.GetReturnValue().Set(scope.Escape(result));
 }
 
 void Init(v8::Local<v8::Object> exports) {
-  NODE_SET_METHOD(exports, "marchCubes", MarchCubes);
-  NODE_SET_METHOD(exports, "marchCubesPlanet", MarchCubesPlanet);
+  NODE_SET_METHOD(exports, "genMarchCubes", GenMarchCubes);
+  NODE_SET_METHOD(exports, "reMarchCubes", ReMarchCubes);
+  NODE_SET_METHOD(exports, "holesMarchCubes", HolesMarchCubes);
 }
 
 NODE_MODULE(addon, Init)
