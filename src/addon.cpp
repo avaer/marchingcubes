@@ -361,15 +361,12 @@ v8::Local<v8::Value> DoReMarchCubes(
   const unsigned int numEthers = SIZE_BUFFERED * SIZE_BUFFERED * SIZE_BUFFERED;
   v8::Local<v8::ArrayBuffer> ethersBuffer = v8::ArrayBuffer::New(isolate, numEthers * 4);
   v8::Local<v8::Float32Array> ethers = v8::Float32Array::New(ethersBuffer, 0, numEthers);
-  unsigned int etherIndex = 0;
-  for (unsigned int n = 0; n < numEthers; n++) {
-    for (int i = 0; i < SIZE_BUFFERED; i++) {
-      for (int j = 0; j < SIZE_BUFFERED; j++) {
-        for (int k = 0; k < SIZE_BUFFERED; k++) {
-          float v = mc.get_data(ivec3(i, j, k));
-          ethers->Set(etherIndex, v8::Number::New(isolate, v));
-          etherIndex++;
-        }
+  for (int i = 0; i < SIZE_BUFFERED; i++) {
+    for (int j = 0; j < SIZE_BUFFERED; j++) {
+      for (int k = 0; k < SIZE_BUFFERED; k++) {
+        const unsigned int etherIndex = i + (j * SIZE_BUFFERED) + (k * SIZE_BUFFERED * SIZE_BUFFERED);
+        float v = mc.get_data(ivec3(i, j, k));
+        ethers->Set(etherIndex, v8::Number::New(isolate, v));
       }
     }
   }
@@ -424,15 +421,15 @@ v8::Local<v8::Value> DoHolesMarchCubes(
     int z = holesValue->Get(holeIndexBase + 2)->Int32Value();
 
     for (int i = -2; i <= 2; i++) {
-      int dx = BUFFER + x + i - (originVector.x * SIZE);
+      int dx = BUFFER + (SIZE / 2) + x + i - (originVector.x * SIZE);
 
       if (dx >= 0 && dx < SIZE_BUFFERED) {
         for (int j = -2; j <= 2; j++) {
-          int dy = BUFFER + y + j - (originVector.y * SIZE);
+          int dy = BUFFER + (SIZE / 2) + y + j - (originVector.y * SIZE);
 
           if (dy >= 0 && dy < SIZE_BUFFERED) {
             for (int k = -2; k <= 2; k++) {
-              int dz = BUFFER + z + k - (originVector.z * SIZE);
+              int dz = BUFFER + (SIZE / 2) + z + k - (originVector.z * SIZE);
 
               if (dz >= 0 && dz < SIZE_BUFFERED) {
                 float distance = std::sqrt((i * i) + (j * j) + (k * k));
@@ -524,15 +521,12 @@ v8::Local<v8::Value> DoHolesMarchCubes(
   const unsigned int numEthers = SIZE_BUFFERED * SIZE_BUFFERED * SIZE_BUFFERED;
   v8::Local<v8::ArrayBuffer> ethersBuffer = v8::ArrayBuffer::New(isolate, numEthers * 4);
   v8::Local<v8::Float32Array> ethers = v8::Float32Array::New(ethersBuffer, 0, numEthers);
-  unsigned int etherIndex = 0;
-  for (unsigned int n = 0; n < numEthers; n++) {
-    for (int i = 0; i < SIZE_BUFFERED; i++) {
-      for (int j = 0; j < SIZE_BUFFERED; j++) {
-        for (int k = 0; k < SIZE_BUFFERED; k++) {
-          float v = mc.get_data(ivec3(i, j, k));
-          ethers->Set(etherIndex, v8::Number::New(isolate, v));
-          etherIndex++;
-        }
+  for (int i = 0; i < SIZE_BUFFERED; i++) {
+    for (int j = 0; j < SIZE_BUFFERED; j++) {
+      for (int k = 0; k < SIZE_BUFFERED; k++) {
+        const unsigned int etherIndex = i + (j * SIZE_BUFFERED) + (k * SIZE_BUFFERED * SIZE_BUFFERED);
+        float v = mc.get_data(ivec3(i, j, k));
+        ethers->Set(etherIndex, v8::Number::New(isolate, v));
       }
     }
   }
@@ -588,7 +582,6 @@ void GenMarchCubes(const v8::FunctionCallbackInfo<v8::Value>& args) {
 
   auto seedKey = v8::String::NewFromUtf8(isolate, "seed");
   auto originKey = v8::String::NewFromUtf8(isolate, "origin");
-  auto holesKey = v8::String::NewFromUtf8(isolate, "holes");
   auto landKey = v8::String::NewFromUtf8(isolate, "land");
   auto waterKey = v8::String::NewFromUtf8(isolate, "water");
   auto metadataKey = v8::String::NewFromUtf8(isolate, "metadata");
@@ -941,11 +934,11 @@ void HolesMarchCubes(const v8::FunctionCallbackInfo<v8::Value>& args) {
   }
 
   v8::Local<v8::Object> opts = args[0]->ToObject();
-  v8::Local<v8::Value> holes = opts->Get(holesKey);
   v8::Local<v8::Value> landOption = opts->Get(landKey);
   v8::Local<v8::Value> waterOption = opts->Get(waterKey);
   v8::Local<v8::Value> metadataOption = opts->Get(metadataKey);
-  if (!(holes->IsInt32Array() && landOption->IsObject() && waterOption->IsObject() && metadataOption->IsObject())) {
+  v8::Local<v8::Value> holes = opts->Get(holesKey);
+  if (!(landOption->IsObject() && waterOption->IsObject() && metadataOption->IsObject() && holes->IsInt32Array())) {
     isolate->ThrowException(v8::Exception::TypeError(
         v8::String::NewFromUtf8(isolate, "Invalid options")));
     return;
