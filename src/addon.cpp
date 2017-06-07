@@ -642,7 +642,7 @@ void GenMarchCubes(const v8::FunctionCallbackInfo<v8::Value>& args) {
 
   std::default_random_engine generator(seedValue->Uint32Value() + 1);
   std::uniform_real_distribution<float> distribution(0.0f, 1.0f);
-  const float moistureMultiplier = 0.3 + 0.7 * distribution(generator);
+  const float moistureMultiplier = 0.25 + 0.75 * distribution(generator);
   const float moistureMinValue = 20000 * moistureMultiplier;
   const float moistureFactor = 0.2 * moistureMultiplier;
   const float mosistureLengthPow = 2.25;
