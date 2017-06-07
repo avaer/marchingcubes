@@ -661,28 +661,6 @@ void GenMarchCubes(const v8::FunctionCallbackInfo<v8::Value>& args) {
 
   // begin latch moistures
   noise.reseed(waterSeedNumber);
-  MarchingCubes mc(SIZE_BUFFERED, SIZE_BUFFERED, SIZE_BUFFERED);
-  for (unsigned int i = 0; i < SIZE_BUFFERED; i++) {
-    for (unsigned int j = 0; j < SIZE_BUFFERED; j++) {
-      for (unsigned int k = 0; k < SIZE_BUFFERED; k++) {
-        float v = _getValue(
-          Vector3{
-            (float)i,
-            (float)j,
-            (float)k
-          },
-          originVector,
-          moistureNoiseFrequency,
-          moistureNoiseOctaves,
-          moistureMinValue,
-          moistureFactor,
-          mosistureLengthPow,
-          moistureEtherFactor
-        );
-        mc.set_data(v, i, j, k);
-      }
-    }
-  }
 
   const unsigned int numMoistureEthers = SIZE_BUFFERED * SIZE_BUFFERED * SIZE_BUFFERED;
   v8::Local<v8::ArrayBuffer> moistureEthersBuffer = v8::ArrayBuffer::New(isolate, numMoistureEthers * 4);
@@ -691,7 +669,22 @@ void GenMarchCubes(const v8::FunctionCallbackInfo<v8::Value>& args) {
     for (int j = 0; j < SIZE_BUFFERED; j++) {
       for (int k = 0; k < SIZE_BUFFERED; k++) {
         const unsigned int moistureEtherIndex = i + (j * SIZE_BUFFERED) + (k * SIZE_BUFFERED * SIZE_BUFFERED);
-        const float v = mc.get_data(ivec3(i, j, k));
+        IntVector3 localVector{
+          i - (SIZE_BUFFERED / 2),
+          j - (SIZE_BUFFERED / 2),
+          k - (SIZE_BUFFERED / 2)
+        };
+        Vector3 absoluteVector{
+          localVector.x + (originVector.x * SIZE),
+          localVector.y + (originVector.y * SIZE),
+          localVector.z + (originVector.z * SIZE)
+        };
+        const float v = noise.octaveNoise(
+          (absoluteVector.x * moistureNoiseFrequency),
+          (absoluteVector.y * moistureNoiseFrequency),
+          (absoluteVector.z * moistureNoiseFrequency),
+          moistureNoiseOctaves
+        );
         moistureEthers->Set(moistureEtherIndex, v8::Number::New(isolate, v));
       }
     }
@@ -725,22 +718,31 @@ void GenMarchCubes(const v8::FunctionCallbackInfo<v8::Value>& args) {
       (float)positions->Get(triangleBaseIndex + 7)->NumberValue(),
       (float)positions->Get(triangleBaseIndex + 8)->NumberValue()
     };
-    Vector3 center{
-      (pa.x + pb.x + pc.x) / 3,
-      (pa.y + pb.y + pc.y) / 3,
-      (pa.z + pb.z + pc.z) / 3
+    IntVector3 centerVector{
+      (int)((pa.x + pb.x + pc.x) / 3),
+      (int)((pa.y + pb.y + pc.y) / 3),
+      (int)((pa.z + pb.z + pc.z) / 3)
+    };
+    IntVector3 localVector{
+      centerVector.x + (SIZE_BUFFERED / 2),
+      centerVector.y + (SIZE_BUFFERED / 2),
+      centerVector.z + (SIZE_BUFFERED / 2)
     };
     Vector3 absoluteVector{
-      center.x + (originVector.x * SIZE),
-      center.y + (originVector.y * SIZE),
-      center.z + (originVector.z * SIZE)
+      centerVector.x + (originVector.x * SIZE),
+      centerVector.y + (originVector.y * SIZE),
+      centerVector.z + (originVector.z * SIZE)
     };
-    float elevation = std::sqrt(absoluteVector.x * absoluteVector.x + absoluteVector.y * absoluteVector.y + absoluteVector.z * absoluteVector.z);
+    float elevation = std::sqrt(
+      absoluteVector.x * absoluteVector.x +
+      absoluteVector.y * absoluteVector.y +
+      absoluteVector.z * absoluteVector.z
+    );
     float moisture = std::abs(
       (float)moistureEthers->Get(
-        center.x +
-        (center.y * SIZE_BUFFERED) +
-        (center.z * SIZE_BUFFERED * SIZE_BUFFERED)
+        localVector.x +
+        (localVector.y * SIZE_BUFFERED) +
+        (localVector.z * SIZE_BUFFERED * SIZE_BUFFERED)
       )->NumberValue()
     ) * 10;
     unsigned int c = _getBiomeColor(elevation, moisture);
@@ -863,22 +865,31 @@ void ReMarchCubes(const v8::FunctionCallbackInfo<v8::Value>& args) {
       (float)positions->Get(triangleBaseIndex + 7)->NumberValue(),
       (float)positions->Get(triangleBaseIndex + 8)->NumberValue()
     };
-    Vector3 center{
-      (pa.x + pb.x + pc.x) / 3,
-      (pa.y + pb.y + pc.y) / 3,
-      (pa.z + pb.z + pc.z) / 3
+    IntVector3 centerVector{
+      (int)((pa.x + pb.x + pc.x) / 3),
+      (int)((pa.y + pb.y + pc.y) / 3),
+      (int)((pa.z + pb.z + pc.z) / 3)
+    };
+    IntVector3 localVector{
+      centerVector.x + (SIZE_BUFFERED / 2),
+      centerVector.y + (SIZE_BUFFERED / 2),
+      centerVector.z + (SIZE_BUFFERED / 2)
     };
     Vector3 absoluteVector{
-      center.x + (originVector.x * SIZE),
-      center.y + (originVector.y * SIZE),
-      center.z + (originVector.z * SIZE)
+      centerVector.x + (originVector.x * SIZE),
+      centerVector.y + (originVector.y * SIZE),
+      centerVector.z + (originVector.z * SIZE)
     };
-    float elevation = std::sqrt(absoluteVector.x * absoluteVector.x + absoluteVector.y * absoluteVector.y + absoluteVector.z * absoluteVector.z);
+    float elevation = std::sqrt(
+      absoluteVector.x * absoluteVector.x +
+      absoluteVector.y * absoluteVector.y +
+      absoluteVector.z * absoluteVector.z
+    );
     float moisture = std::abs(
       (float)moistureEtherValue->Get(
-        center.x +
-        (center.y * SIZE_BUFFERED) +
-        (center.z * SIZE_BUFFERED * SIZE_BUFFERED)
+        localVector.x +
+        (localVector.y * SIZE_BUFFERED) +
+        (localVector.z * SIZE_BUFFERED * SIZE_BUFFERED)
       )->NumberValue()
     ) * 10;
     unsigned int c = _getBiomeColor(elevation, moisture);
@@ -1009,22 +1020,31 @@ void HolesMarchCubes(const v8::FunctionCallbackInfo<v8::Value>& args) {
       (float)positions->Get(triangleBaseIndex + 7)->NumberValue(),
       (float)positions->Get(triangleBaseIndex + 8)->NumberValue()
     };
-    Vector3 center{
-      (pa.x + pb.x + pc.x) / 3,
-      (pa.y + pb.y + pc.y) / 3,
-      (pa.z + pb.z + pc.z) / 3
+    IntVector3 centerVector{
+      (int)((pa.x + pb.x + pc.x) / 3),
+      (int)((pa.y + pb.y + pc.y) / 3),
+      (int)((pa.z + pb.z + pc.z) / 3)
+    };
+    IntVector3 localVector{
+      centerVector.x + (SIZE_BUFFERED / 2),
+      centerVector.y + (SIZE_BUFFERED / 2),
+      centerVector.z + (SIZE_BUFFERED / 2)
     };
     Vector3 absoluteVector{
-      center.x + (originVector.x * SIZE),
-      center.y + (originVector.y * SIZE),
-      center.z + (originVector.z * SIZE)
+      centerVector.x + (originVector.x * SIZE),
+      centerVector.y + (originVector.y * SIZE),
+      centerVector.z + (originVector.z * SIZE)
     };
-    float elevation = std::sqrt(absoluteVector.x * absoluteVector.x + absoluteVector.y * absoluteVector.y + absoluteVector.z * absoluteVector.z);
+    float elevation = std::sqrt(
+      absoluteVector.x * absoluteVector.x +
+      absoluteVector.y * absoluteVector.y +
+      absoluteVector.z * absoluteVector.z
+    );
     float moisture = std::abs(
       (float)moistureEtherValue->Get(
-        center.x +
-        (center.y * SIZE_BUFFERED) +
-        (center.z * SIZE_BUFFERED * SIZE_BUFFERED)
+        localVector.x +
+        (localVector.y * SIZE_BUFFERED) +
+        (localVector.z * SIZE_BUFFERED * SIZE_BUFFERED)
       )->NumberValue()
     ) * 10;
     unsigned int c = _getBiomeColor(elevation, moisture);
